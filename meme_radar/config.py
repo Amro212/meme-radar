@@ -20,7 +20,8 @@ class Config:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._load_config()
+        # Always reload config to pick up changes
+        cls._instance._load_config()
         return cls._instance
     
     def _load_config(self) -> None:

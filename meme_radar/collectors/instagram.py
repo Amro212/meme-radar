@@ -40,6 +40,7 @@ class InstagramCollector(BaseCollector):
         """Lazy-load the Instaloader instance."""
         if self._loader is None:
             import instaloader
+            import os
             
             self._loader = instaloader.Instaloader(
                 download_pictures=False,
@@ -50,6 +51,36 @@ class InstagramCollector(BaseCollector):
                 save_metadata=False,
                 compress_json=False,
             )
+            
+            # Attempt login if credentials are provided
+            username = self.config.get("instagram", "username")
+            password = self.config.get("instagram", "password")
+            
+            print(f"[Instagram] Username from config: '{username}'")
+            
+            if username and password:
+                # Try to load existing session first
+                session_file = f".instaloader-session-{username}"
+                try:
+                    if os.path.exists(session_file):
+                        self._loader.load_session_from_file(username, session_file)
+                        print(f"[Instagram] Loaded existing session for {username}")
+                    else:
+                        print(f"[Instagram] No session file found, attempting login...")
+                        self._loader.login(username, password)
+                        self._loader.save_session_to_file(session_file)
+                        print(f"[Instagram] Successfully logged in as {username}")
+                except instaloader.exceptions.BadCredentialsException:
+                    print(f"[Instagram] ERROR: Bad credentials for {username}")
+                except instaloader.exceptions.TwoFactorAuthRequiredException:
+                    print(f"[Instagram] ERROR: Two-factor auth required. Please disable 2FA or use app password.")
+                except instaloader.exceptions.ConnectionException as e:
+                    print(f"[Instagram] ERROR: Connection error during login: {e}")
+                except Exception as e:
+                    print(f"[Instagram] ERROR: Login failed: {type(e).__name__}: {e}")
+            else:
+                print("[Instagram] WARNING: No credentials configured. Hashtag scraping requires login.")
+                
         return self._loader
     
     def collect(self) -> CollectionResult:

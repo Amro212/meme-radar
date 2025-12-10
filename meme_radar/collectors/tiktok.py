@@ -40,9 +40,20 @@ class TikTokCollector(BaseCollector):
         if self._api is None:
             from TikTokApi import TikTokApi
             self._api = TikTokApi()
+            
+            # Get ms_token from config (helps bypass 10201 error)
+            ms_token = self.config.get("tiktok", "ms_token")
+            ms_tokens = [ms_token] if ms_token else []
+            
+            if ms_tokens:
+                print(f"[TikTok] Using ms_token from config")
+            else:
+                print("[TikTok] No ms_token provided - may encounter 10201 error")
+            
             await self._api.create_sessions(
+                ms_tokens=ms_tokens,
                 num_sessions=1,
-                sleep_after=3,
+                sleep_after=5,
                 headless=True,
             )
         return self._api
@@ -82,26 +93,61 @@ class TikTokCollector(BaseCollector):
         return result
     
     async def _collect_async(self, result: CollectionResult) -> None:
-        """Async collection of trending videos."""
+        """Async collection from trending, users, and hashtags."""
         from TikTokApi import TikTokApi
         
-        trending_limit = self.config.get("tiktok", "trending_limit", default=100)
-        comments_per_video = self.config.get("tiktok", "comments_per_video", default=20)
+        trending_limit = self.config.get("tiktok", "trending_limit", default=30)
+        users = self.config.get("tiktok", "users", default=[])
+        hashtags = self.config.get("tiktok", "hashtags", default=[])
+        max_per_source = self.config.get("tiktok", "max_posts_per_source", default=20)
         
         try:
             api = await self._init_api()
             
+            # 1. Collect from trending (viral content)
+            print(f"[TikTok] Collecting {trending_limit} trending videos...")
             async for video in api.trending.videos(count=trending_limit):
                 try:
                     post = await self._process_video(video)
                     result.posts.append(post)
-                    
-                    # Fetch comments
-                    if comments_per_video > 0:
-                        await self._collect_comments(video, post.platform_post_id, comments_per_video, result)
-                        
                 except Exception as e:
-                    result.errors.append(f"Error processing video: {str(e)}")
+                    result.errors.append(f"Error processing trending video: {str(e)}")
+            
+            # 2. Collect from specific users (early trend adopters)
+            for username in users:
+                try:
+                    print(f"[TikTok] Collecting from @{username}...")
+                    user = api.user(username)
+                    count = 0
+                    async for video in user.videos(count=max_per_source):
+                        if count >= max_per_source:
+                            break
+                        try:
+                            post = await self._process_video(video)
+                            result.posts.append(post)
+                            count += 1
+                        except Exception as e:
+                            result.errors.append(f"Error processing @{username} video: {str(e)}")
+                except Exception as e:
+                    result.errors.append(f"Error collecting from @{username}: {str(e)}")
+            
+            # 3. Collect from hashtags (topic-specific trends)
+            for hashtag in hashtags:
+                try:
+                    print(f"[TikTok] Collecting from #{hashtag}...")
+                    tag = api.hashtag(name=hashtag)
+                    count = 0
+                    async for video in tag.videos(count=max_per_source):
+                        if count >= max_per_source:
+                            break
+                        try:
+                            post = await self._process_video(video)
+                            result.posts.append(post)
+                            count += 1
+                        except Exception as e:
+                            result.errors.append(f"Error processing #{hashtag} video: {str(e)}")
+                except Exception as e:
+                    result.errors.append(f"Error collecting from #{hashtag}: {str(e)}")
                     
         except Exception as e:
             result.errors.append(f"TikTok API error: {str(e)}")

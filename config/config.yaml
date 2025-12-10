@@ -30,7 +30,7 @@ analysis:
 
 # Platform: Twitter/X
 twitter:
-  enabled: true
+  enabled: false
   # Search queries to monitor
   queries:
     - "meme"
@@ -43,32 +43,51 @@ twitter:
   max_tweets_per_query: 100
 
 # Platform: TikTok
+# Get ms_token from browser: Open TikTok > F12 > Application > Cookies > msToken
 tiktok:
   enabled: true
+  # Paste your ms_token here (get from browser cookies - expires frequently!)
+  ms_token: "pAvoM4_c0KMj4hKZnI54zBlFv9omNyfqKb3KIWDwebgECtqUUaS86579AsikXOLyR6mcr70gjqMvAB9DhOoclRcez59mdZl4D_PCOaro3IrAK5EDq6UzMs4I4bEq9O0Qk0xUT6OQLSv7IQ=="
   # Number of trending videos to fetch per run
-  trending_limit: 100
-  # Number of top comments to fetch per video
-  comments_per_video: 20
+  trending_limit: 30
+  # TikTok users to monitor (medium-sized accounts that catch trends early)
+  users:
+    - "girl_on_couch"        # Originated "Man in Finance" trend
+    - "joolieannie"          # "Very Demure" trend creator
+    - "kelleyheyer"          # Apple Dance creator
+    - "memegod"              # Fast trend adoption
+  # Hashtags to monitor for memecoin potential
+  hashtags:
+    - "brainrot"             # Viral nonsense (memecoin material)
+    - "meme"
+    - "viral"
+    - "fyp"
+  # Max posts per user/hashtag
+  max_posts_per_source: 20
 
 # Platform: Instagram
 instagram:
-  enabled: true
-  # Hashtags to monitor
-  hashtags:
-    - "memes"
-    - "dankmemes"
-    - "memesdaily"
-    - "funnymemes"
-  # Accounts to monitor (large meme pages)
-  accounts: []
-  # Maximum posts per hashtag per run
-  max_posts_per_hashtag: 50
+  enabled: false
+  # Login credentials (creates a session file)
+  username: "nur_.alqalb"  # your_instagram_username
+  password: "Boomboom1234"  # your_instagram_password
+  # Hashtags to monitor (NOTE: Instagram blocks hashtag scraping even with login)
+  hashtags: []
+  # Accounts to monitor (medium-sized pages that catch trends early)
+  accounts:
+    - "memezar"              # 200k+ followers, fast trend adoption
+    - "sarcasm_only"         # Relatable humor, 500k followers
+    - "thefunnyintrovert"    # Niche humor, trend-aware
+    - "memesmerized"         # Curated viral content
+    - "humor_me_pink"        # Medium-sized, active community
+  # Maximum posts per account per run (keep low to avoid rate limits)
+  max_posts_per_hashtag: 10
   # Delay between requests (seconds) to avoid rate limiting
-  request_delay: 2
+  request_delay: 5
 
 # Platform: Reddit
 reddit:
-  enabled: true
+  enabled: false
   # API credentials (set via environment variables for security)
   # client_id: ${REDDIT_CLIENT_ID}
   # client_secret: ${REDDIT_CLIENT_SECRET}
@@ -114,5 +133,10 @@ noise:
     - "art"
     - "food"
     - "travel"
+    # TikTok generic tags
+    - "fyp"
+    - "foryou"
+    - "foryoupage"
+    - "viral"
   # Minimum comment engagement to not be considered spam
   min_comment_engagement: 1

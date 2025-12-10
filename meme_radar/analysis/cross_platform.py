@@ -91,12 +91,13 @@ class CrossPlatformAnalyzer:
     ) -> list[tuple[str, str, list[int]]]:
         """Find terms that appear on multiple platforms."""
         # Query for terms with their platform distribution
+        # Use group_concat instead of array_agg for SQLite compatibility
         results = (
             self.session.query(
                 TermStat.term,
                 TermStat.term_type,
                 func.count(func.distinct(TermStat.platform_id)).label('platform_count'),
-                func.array_agg(func.distinct(TermStat.platform_id)).label('platform_ids'),
+                func.group_concat(func.distinct(TermStat.platform_id)).label('platform_ids_str'),
             )
             .filter(TermStat.time_bucket >= since_time)
             .group_by(TermStat.term, TermStat.term_type)
@@ -106,7 +107,11 @@ class CrossPlatformAnalyzer:
             .all()
         )
         
-        return [(r.term, r.term_type, r.platform_ids or []) for r in results]
+        # Convert comma-separated string to list of ints
+        return [
+            (r.term, r.term_type, [int(x) for x in r.platform_ids_str.split(',')] if r.platform_ids_str else [])
+            for r in results
+        ]
     
     def _build_cross_platform_trend(
         self,
