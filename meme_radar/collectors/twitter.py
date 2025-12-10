@@ -1,42 +1,43 @@
 """
-Twitter/X collector using snscrape.
+Twitter/X collector using Twikit.
 
-Fetches recent high-engagement tweets to approximate trending content.
+Fetches recent high-engagement tweets using Twikit library.
 """
 
 from datetime import datetime, timedelta
 from typing import Optional
+import asyncio
 
 from .base import BaseCollector, CollectionResult, PostEvent
 
 
 class TwitterCollector(BaseCollector):
     """
-    Collector for Twitter/X using snscrape.
+    Collector for Twitter/X using Twikit.
     
-    Note: snscrape may have intermittent issues due to Twitter API changes.
-    The collector handles errors gracefully and returns partial results.
+    Uses Twikit to authenticate and search for tweets.
     """
     
     PLATFORM_NAME = "twitter"
     
     def __init__(self):
         super().__init__()
-        self._snscrape_available = None
+        self._twikit_available = None
+        self._client = None
     
     def is_available(self) -> bool:
-        """Check if snscrape is installed."""
-        if self._snscrape_available is None:
+        """Check if twikit is installed."""
+        if self._twikit_available is None:
             try:
-                import snscrape.modules.twitter as sntwitter
-                self._snscrape_available = True
+                from twikit import Client
+                self._twikit_available = True
             except ImportError:
-                self._snscrape_available = False
-        return self._snscrape_available
+                self._twikit_available = False
+        return self._twikit_available
     
     def collect(self) -> CollectionResult:
         """
-        Collect tweets using snscrape.
+        Collect tweets using Twikit.
         
         Searches for tweets matching configured queries with minimum engagement.
         """
@@ -48,112 +49,122 @@ class TwitterCollector(BaseCollector):
         
         if not self.is_available():
             result.errors.append(
-                "snscrape not installed. Install with: pip install snscrape"
+                "twikit not installed. Install with: pip install twikit"
             )
             return result
         
-        import snscrape.modules.twitter as sntwitter
+        # Run async collection
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self._collect_async(result))
+            finally:
+                loop.close()
+        except Exception as e:
+            result.errors.append(f"Twitter collection error: {str(e)}")
+        
+        result.completed_at = datetime.utcnow()
+        return result
+    
+    async def _collect_async(self, result: CollectionResult) -> None:
+        """Async collection of tweets."""
+        from twikit import Client
+        
+        # Get credentials
+        username = self.config.get("twitter", "username")
+        password = self.config.get("twitter", "password")
+        
+        if not username or not password:
+            result.errors.append("Twitter username/password not configured")
+            return
         
         queries = self.config.get("twitter", "queries", default=["meme"])
         min_likes = self.config.get("twitter", "min_likes", default=50)
         min_retweets = self.config.get("twitter", "min_retweets", default=10)
         max_tweets = self.config.get("twitter", "max_tweets_per_query", default=100)
         
-        # Calculate time window (default: last 60 minutes)
-        time_window = self.config.get("analysis", "time_window_minutes", default=60)
-        since_time = datetime.utcnow() - timedelta(minutes=time_window)
-        
-        for query in queries:
-            try:
-                self._collect_query(
-                    query,
-                    since_time,
-                    min_likes,
-                    min_retweets,
-                    max_tweets,
-                    result,
-                )
-            except Exception as e:
-                result.errors.append(f"Error searching '{query}': {str(e)}")
-        
-        result.completed_at = datetime.utcnow()
-        return result
-    
-    def _collect_query(
-        self,
-        query: str,
-        since_time: datetime,
-        min_likes: int,
-        min_retweets: int,
-        max_tweets: int,
-        result: CollectionResult,
-    ) -> None:
-        """Collect tweets for a single search query."""
-        import snscrape.modules.twitter as sntwitter
-        
-        # Build search query with engagement filters
-        search_query = f"{query} min_faves:{min_likes} min_retweets:{min_retweets}"
-        
         try:
-            scraper = sntwitter.TwitterSearchScraper(search_query)
+            # Initialize client
+            client = Client('en-US')
             
-            count = 0
-            for tweet in scraper.get_items():
-                if count >= max_tweets:
-                    break
-                
-                # Skip tweets older than our time window
-                if tweet.date.replace(tzinfo=None) < since_time:
-                    continue
-                
-                post = self._create_post_event(tweet)
-                result.posts.append(post)
-                count += 1
-                
+            # Try to load cookies first
+            import os
+            cookie_file = '.twikit_cookies.json'
+            
+            if os.path.exists(cookie_file):
+                print(f"[Twitter] Loading saved session...")
+                client.load_cookies(cookie_file)
+            else:
+                print(f"[Twitter] Logging in as {username}...")
+                await client.login(
+                    auth_info_1=username,
+                    password=password
+                )
+                client.save_cookies(cookie_file)
+                print(f"[Twitter] Successfully logged in!")
+            
+            # Search for each query
+            for query in queries:
+                try:
+                    print(f"[Twitter] Searching for '{query}'...")
+                    tweets = await client.search_tweet(query, 'Latest', count=max_tweets)
+                    
+                    for tweet in tweets:
+                        # Filter by engagement
+                        if tweet.favorite_count < min_likes or tweet.retweet_count < min_retweets:
+                            continue
+                        
+                        post = self._create_post_event(tweet)
+                        result.posts.append(post)
+                        
+                except Exception as e:
+                    result.errors.append(f"Error searching '{query}': {str(e)}")
+                    
         except Exception as e:
-            result.errors.append(f"snscrape error for '{query}': {str(e)}")
+            result.errors.append(f"Twitter login/search error: {str(e)}")
     
     def _create_post_event(self, tweet) -> PostEvent:
-        """Convert a snscrape tweet object to PostEvent."""
-        # Extract text, handling quoted tweets
-        text = tweet.rawContent if hasattr(tweet, 'rawContent') else tweet.content
+        """Convert a Twikit tweet object to PostEvent."""
+        # Extract text
+        text = tweet.full_text if hasattr(tweet, 'full_text') else tweet.text
         
-        # Extract hashtags from the tweet
+        # Extract hashtags
         hashtags = self.extract_hashtags(text)
-        if hasattr(tweet, 'hashtags') and tweet.hashtags:
-            hashtags = list(set(hashtags + [tag.lower() for tag in tweet.hashtags]))
         
         # Extract media URLs
         media_urls = []
         if hasattr(tweet, 'media') and tweet.media:
             for media in tweet.media:
-                if hasattr(media, 'fullUrl'):
-                    media_type = 'video' if hasattr(media, 'duration') else 'image'
-                    media_urls.append((media.fullUrl, media_type))
-                elif hasattr(media, 'previewUrl'):
-                    media_urls.append((media.previewUrl, 'image'))
+                if hasattr(media, 'media_url_https'):
+                    media_type = media.type if hasattr(media, 'type') else 'image'
+                    media_urls.append((media.media_url_https, media_type))
+        
+        # Build permalink
+        username = tweet.user.screen_name if hasattr(tweet, 'user') else 'unknown'
+        permalink = f"https://twitter.com/{username}/status/{tweet.id}"
         
         post = PostEvent(
             platform=self.PLATFORM_NAME,
             platform_post_id=str(tweet.id),
-            author=tweet.user.username if hasattr(tweet, 'user') and tweet.user else None,
-            created_at=tweet.date.replace(tzinfo=None) if tweet.date else None,
+            author=username,
+            created_at=tweet.created_at if hasattr(tweet, 'created_at') else None,
             text=text,
-            permalink=tweet.url if hasattr(tweet, 'url') else None,
-            likes=tweet.likeCount if hasattr(tweet, 'likeCount') else 0,
-            shares=tweet.retweetCount if hasattr(tweet, 'retweetCount') else 0,
-            comments_count=tweet.replyCount if hasattr(tweet, 'replyCount') else 0,
+            permalink=permalink,
+            likes=tweet.favorite_count if hasattr(tweet, 'favorite_count') else 0,
+            shares=tweet.retweet_count if hasattr(tweet, 'retweet_count') else 0,
+            comments_count=tweet.reply_count if hasattr(tweet, 'reply_count') else 0,
             hashtags=hashtags,
             media_urls=media_urls,
             raw_metadata={
-                "quote_count": tweet.quoteCount if hasattr(tweet, 'quoteCount') else 0,
-                "view_count": tweet.viewCount if hasattr(tweet, 'viewCount') else None,
-                "is_retweet": hasattr(tweet, 'retweetedTweet') and tweet.retweetedTweet is not None,
+                "quote_count": tweet.quote_count if hasattr(tweet, 'quote_count') else 0,
+                "view_count": tweet.view_count if hasattr(tweet, 'view_count') else None,
+                "is_retweet": hasattr(tweet, 'retweeted_status'),
             }
         )
         
         # Calculate engagement score
-        views = tweet.viewCount if hasattr(tweet, 'viewCount') and tweet.viewCount else 0
+        views = tweet.view_count if hasattr(tweet, 'view_count') and tweet.view_count else 0
         post.engagement_score = self.calculate_engagement_score(
             likes=post.likes,
             shares=post.shares,
@@ -169,7 +180,7 @@ if __name__ == "__main__":
     collector = TwitterCollector()
     
     if not collector.is_available():
-        print("Twitter collector not available. Install snscrape: pip install snscrape")
+        print("Twitter collector not available. Install twikit: pip install twikit")
     else:
         print("Collecting from Twitter...")
         result = collector.collect()

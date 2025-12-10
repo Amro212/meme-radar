@@ -80,6 +80,9 @@ class TrendAnalyzer:
         # Update hashtag stats
         self._update_hashtag_stats(current_bucket, window_start, window_end)
         
+        # Update phrase stats from POST TEXT (captions, descriptions)
+        self._update_post_phrase_stats(current_bucket, window_start, window_end)
+        
         # Update phrase stats from comments (normalized text)
         self._update_comment_phrase_stats(current_bucket, window_start, window_end)
         
@@ -119,6 +122,111 @@ class TrendAnalyzer:
                 sum_engagement=row.engagement or 0,
                 distinct_authors=row.authors or 0,
             )
+    
+    def _update_post_phrase_stats(
+        self,
+        bucket: datetime,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> None:
+        """
+        Update statistics for phrases in post text (captions, descriptions).
+        
+        Extracts 2-3 word phrases to catch viral terms like:
+        - "hawk tuah"
+        - "very demure"
+        - "moo deng"
+        """
+        import re
+        from collections import Counter
+        
+        # Get all posts in window
+        posts = (
+            self.session.query(Post)
+            .filter(Post.collected_at >= window_start)
+            .filter(Post.collected_at < window_end)
+            .filter(Post.text.isnot(None))
+            .all()
+        )
+        
+        # Extract phrases per platform
+        platform_phrases = {}  # platform_id -> Counter of phrases
+        
+        for post in posts:
+            if not post.text:
+                continue
+            
+            # Clean text
+            text = post.text.lower()
+            # Remove URLs
+            text = re.sub(r'http\S+|www\S+', '', text)
+            # Remove hashtags (already tracked separately)
+            text = re.sub(r'#\w+', '', text)
+            # Remove mentions
+            text = re.sub(r'@\w+', '', text)
+            # Remove special chars except spaces
+            text = re.sub(r'[^\w\s]', ' ', text)
+            
+            # Extract 2-3 word phrases
+            words = text.split()
+            phrases = []
+            
+            # 2-word phrases
+            for i in range(len(words) - 1):
+                phrase = f"{words[i]} {words[i+1]}"
+                # Filter out common stop phrases
+                if len(phrase) > 4 and not self._is_stop_phrase(phrase):
+                    phrases.append(phrase)
+            
+            # 3-word phrases
+            for i in range(len(words) - 2):
+                phrase = f"{words[i]} {words[i+1]} {words[i+2]}"
+                if len(phrase) > 6 and not self._is_stop_phrase(phrase):
+                    phrases.append(phrase)
+            
+            # Count phrases per platform
+            if post.platform_id not in platform_phrases:
+                platform_phrases[post.platform_id] = Counter()
+            
+            for phrase in phrases:
+                platform_phrases[post.platform_id][phrase] += 1
+        
+        # Save stats for phrases that appear multiple times
+        for platform_id, phrase_counts in platform_phrases.items():
+            for phrase, count in phrase_counts.items():
+                if count >= 3:  # Must appear in at least 3 posts
+                    # Get posts with this phrase for engagement
+                    posts_with_phrase = [
+                        p for p in posts
+                        if p.platform_id == platform_id and p.text and phrase in p.text.lower()
+                    ]
+                    
+                    engagement = sum(p.engagement_score or 0 for p in posts_with_phrase)
+                    authors = len(set(p.author for p in posts_with_phrase if p.author))
+                    
+                    self._upsert_term_stat(
+                        term=phrase,
+                        term_type='phrase',
+                        platform_id=platform_id,
+                        bucket=bucket,
+                        count_posts=count,
+                        count_comments=0,
+                        sum_engagement=engagement,
+                        distinct_authors=authors,
+                    )
+    
+    def _is_stop_phrase(self, phrase: str) -> bool:
+        """Check if phrase is a common stop phrase to ignore."""
+        stop_phrases = {
+            'in the', 'on the', 'at the', 'to the', 'for the',
+            'of the', 'and the', 'is the', 'it is', 'this is',
+            'that is', 'i am', 'you are', 'we are', 'they are',
+            'i have', 'you have', 'we have', 'check out', 'link in',
+            'follow me', 'like and', 'comment below', 'let me',
+            'want to', 'going to', 'have to', 'need to',
+        }
+        return phrase in stop_phrases
+    
     
     def _update_comment_phrase_stats(
         self,

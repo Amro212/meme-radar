@@ -29,8 +29,12 @@ analysis:
   min_engagement: 5
 
 # Platform: Twitter/X
+# NOTE: Twitter/X actively blocks scraping. Twikit login currently broken (404 error).
 twitter:
   enabled: false
+  # Login credentials (for Twikit - use burner account if possible)
+  username: "Barrage_Ninja"  # Your Twitter/X username
+  password: "amromousa2022003"  # Your Twitter/X password
   # Search queries to monitor
   queries:
     - "meme"
@@ -140,3 +144,24 @@ noise:
     - "viral"
   # Minimum comment engagement to not be considered spam
   min_comment_engagement: 1
+
+# Notifications
+notifications:
+  enabled: true
+  
+  # Sound settings
+  sound: true  # Play Windows notification sound
+  
+  # Trigger thresholds (only notify for high-value trends)
+  min_acceleration: 5.0  # Minimum 5x spike
+  min_zscore: 10.0  # Statistical significance
+  min_frequency: 10  # Minimum posts to notify
+  
+  # Spam prevention
+  cooldown_minutes: 60  # Don't re-notify same trend within 1 hour
+  
+  # Never notify for these terms
+  exclude_terms:
+    - "test"
+    - "example"
+

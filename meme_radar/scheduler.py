@@ -307,8 +307,53 @@ class MemeRadarOrchestrator:
             cross_analyzer.update_trend_candidates_cross_platform()
             results['cross_platform'] = cross_analyzer.analyze(since_hours=2.0)
             logger.info(f"Found {len(results['cross_platform'])} cross-platform trends")
+            
+            # Send notifications for high-value trends
+            self._notify_trends(session)
         
         return results
+    
+    def _notify_trends(self, session) -> None:
+        """Send notifications for detected high-value trends."""
+        try:
+            from .notifier import TrendNotifier
+            from .models import TrendCandidate
+            
+            notifier = TrendNotifier(self.config)
+            
+            if not notifier.is_available():
+                return
+            
+            # Get recent trends (last 30 mins)
+            from datetime import timedelta
+            cutoff_time = datetime.utcnow() - timedelta(minutes=30)
+            
+            trends = (
+                session.query(TrendCandidate)
+                .filter(TrendCandidate.detected_at >= cutoff_time)
+                .order_by(TrendCandidate.trend_score.desc())
+                .limit(10)
+                .all()
+            )
+            
+            for trend in trends:
+                # Get example URL from trend
+                example_url = None
+                if trend.example_refs:
+                    example_url = trend.example_refs[0] if isinstance(trend.example_refs, list) else None
+                
+                # Try to notify
+                notifier.notify_trend(
+                    term=trend.term,
+                    acceleration=trend.acceleration_score,
+                    frequency=trend.frequency,
+                    platform=trend.platform.name if trend.platform else "unknown",
+                    zscore=trend.z_score,
+                    example_url=example_url,
+                )
+                
+        except Exception as e:
+            logger.error(f"Notification error: {e}")
     
     def run_full_cycle(self, platforms: Optional[list[str]] = None) -> dict:
         """
