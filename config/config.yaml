@@ -1,0 +1,118 @@
+# Meme Radar Configuration
+# ==========================
+
+# Database
+database:
+  # SQLite for v1, designed to migrate to PostgreSQL later
+  url: "sqlite:///meme_radar.db"
+
+# Scheduler
+scheduler:
+  # Interval in minutes between collection runs
+  interval_minutes: 30
+  # Timezone for scheduling
+  timezone: "UTC"
+
+# Analysis Settings
+analysis:
+  # Time window in minutes for bucketing data
+  time_window_minutes: 30
+  # Number of historical windows to keep for baseline calculation
+  history_windows: 6
+  # Minimum posts/comments for a term to be considered
+  min_frequency: 10
+  # Z-score threshold for anomaly detection
+  z_score_threshold: 2.0
+  # Acceleration ratio threshold
+  acceleration_threshold: 3.0
+  # Minimum engagement score
+  min_engagement: 5
+
+# Platform: Twitter/X
+twitter:
+  enabled: true
+  # Search queries to monitor
+  queries:
+    - "meme"
+    - "viral"
+  # Minimum likes for a tweet to be collected
+  min_likes: 50
+  # Minimum retweets
+  min_retweets: 10
+  # Maximum tweets per query per run
+  max_tweets_per_query: 100
+
+# Platform: TikTok
+tiktok:
+  enabled: true
+  # Number of trending videos to fetch per run
+  trending_limit: 100
+  # Number of top comments to fetch per video
+  comments_per_video: 20
+
+# Platform: Instagram
+instagram:
+  enabled: true
+  # Hashtags to monitor
+  hashtags:
+    - "memes"
+    - "dankmemes"
+    - "memesdaily"
+    - "funnymemes"
+  # Accounts to monitor (large meme pages)
+  accounts: []
+  # Maximum posts per hashtag per run
+  max_posts_per_hashtag: 50
+  # Delay between requests (seconds) to avoid rate limiting
+  request_delay: 2
+
+# Platform: Reddit
+reddit:
+  enabled: true
+  # API credentials (set via environment variables for security)
+  # client_id: ${REDDIT_CLIENT_ID}
+  # client_secret: ${REDDIT_CLIENT_SECRET}
+  # user_agent: "MemeRadar/1.0"
+  client_id: ""
+  client_secret: ""
+  user_agent: "MemeRadar/1.0 by u/your_username"
+  # Subreddits to monitor
+  subreddits:
+    - "memes"
+    - "dankmemes"
+    - "wholesomememes"
+    - "AdviceAnimals"
+    - "MemeEconomy"
+    - "copypasta"
+  # Maximum posts per subreddit per run
+  max_posts_per_subreddit: 50
+  # Number of top comments to fetch per post
+  comments_per_post: 10
+
+# Noise Filtering
+noise:
+  # Generic stop phrases to ignore
+  stop_phrases:
+    - "lol"
+    - "lmao"
+    - "omg"
+    - "this is so funny"
+    - "dead"
+    - "im dead"
+    - "link in bio"
+    - "subscribe"
+    - "follow me"
+    - "check out"
+    - "discount code"
+  # Evergreen hashtags to filter (unless extreme spike)
+  evergreen_hashtags:
+    - "love"
+    - "happy"
+    - "fashion"
+    - "beautiful"
+    - "photography"
+    - "art"
+    - "food"
+    - "travel"
+  # Minimum comment engagement to not be considered spam
+  min_comment_engagement: 1

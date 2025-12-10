@@ -1,0 +1,21 @@
+# Meme Radar - Dependencies
+# Core
+sqlalchemy>=2.0
+pyyaml
+click
+apscheduler
+python-dotenv
+requests
+
+# Platform Collectors
+praw
+instaloader
+TikTokApi
+snscrape
+
+# Image Processing
+imagehash
+Pillow
+
+# Utilities
+rich  # For CLI output formatting

@@ -1,0 +1,326 @@
+"""
+Command-line interface for Meme Radar.
+
+Provides commands for:
+- Initializing the database
+- Running collection cycles
+- Viewing detected trends
+- Starting the scheduler
+"""
+
+import click
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from datetime import datetime, timedelta
+
+console = Console()
+
+
+@click.group()
+@click.version_option(version='1.0.0', prog_name='Meme Radar')
+def cli():
+    """
+    Meme Radar - Cross-Platform Meme Detection System
+    
+    Monitors Twitter, TikTok, Instagram, and Reddit for emerging memes.
+    """
+    pass
+
+
+@cli.command()
+def init_db():
+    """Initialize the database and create tables."""
+    from .database import init_db as db_init
+    
+    console.print("[bold blue]Initializing database...[/]")
+    
+    try:
+        db_init()
+        console.print("[bold green]✓ Database initialized successfully[/]")
+    except Exception as e:
+        console.print(f"[bold red]✗ Error: {e}[/]")
+        raise click.Abort()
+
+
+@cli.command()
+@click.option(
+    '--platform', '-p',
+    type=click.Choice(['all', 'twitter', 'tiktok', 'instagram', 'reddit']),
+    default='all',
+    help='Platform to collect from'
+)
+def collect(platform: str):
+    """Run a single collection cycle."""
+    from .scheduler import MemeRadarOrchestrator
+    
+    platforms = None if platform == 'all' else [platform]
+    
+    console.print(f"[bold blue]Collecting from {platform}...[/]")
+    
+    orchestrator = MemeRadarOrchestrator()
+    results = orchestrator.run_collection(platforms)
+    
+    # Display results
+    table = Table(title="Collection Results")
+    table.add_column("Platform", style="cyan")
+    table.add_column("Posts", justify="right")
+    table.add_column("Comments", justify="right")
+    table.add_column("Errors", justify="right", style="red")
+    
+    for platform_name, result in results.items():
+        table.add_row(
+            platform_name,
+            str(len(result.posts)),
+            str(len(result.comments)),
+            str(len(result.errors)),
+        )
+    
+    console.print(table)
+    
+    # Show errors if any
+    for platform_name, result in results.items():
+        if result.errors:
+            console.print(f"\n[yellow]Errors from {platform_name}:[/]")
+            for error in result.errors:
+                console.print(f"  • {error}")
+
+
+@cli.command()
+def analyze():
+    """Run the analysis pipeline on collected data."""
+    from .scheduler import MemeRadarOrchestrator
+    
+    console.print("[bold blue]Running analysis pipeline...[/]")
+    
+    orchestrator = MemeRadarOrchestrator()
+    results = orchestrator.run_analysis()
+    
+    # Display trends
+    if results['trends']:
+        table = Table(title="Top Trending Terms")
+        table.add_column("Term", style="cyan")
+        table.add_column("Type")
+        table.add_column("Frequency", justify="right")
+        table.add_column("Acceleration", justify="right")
+        table.add_column("Z-Score", justify="right")
+        
+        for trend in results['trends'][:10]:
+            table.add_row(
+                trend['term'][:40],
+                trend['type'],
+                str(trend['frequency']),
+                f"{trend['acceleration']:.2f}x",
+                f"{trend['z_score']:.2f}",
+            )
+        
+        console.print(table)
+    else:
+        console.print("[yellow]No trends detected[/]")
+    
+    # Display comment memes
+    if results['comment_memes']:
+        console.print("\n[bold]Comment Memes:[/]")
+        for meme in results['comment_memes'][:5]:
+            console.print(
+                f"  • \"{meme['text']}\" "
+                f"({meme['occurrences']} occurrences on {meme['posts']} posts)"
+            )
+
+
+@cli.command()
+@click.option(
+    '--platform', '-p',
+    type=click.Choice(['all', 'twitter', 'tiktok', 'instagram', 'reddit']),
+    default='all',
+    help='Filter by platform'
+)
+@click.option(
+    '--since', '-s',
+    type=float,
+    default=2.0,
+    help='Hours to look back (default: 2)'
+)
+@click.option(
+    '--limit', '-n',
+    type=int,
+    default=20,
+    help='Maximum trends to show (default: 20)'
+)
+def show(platform: str, since: float, limit: int):
+    """Show current trending memes and patterns."""
+    from .database import get_session, get_platform_id
+    from .models import TrendCandidate, Platform
+    
+    console.print(f"[bold blue]Showing trends from the last {since} hours...[/]\n")
+    
+    since_time = datetime.utcnow() - timedelta(hours=since)
+    
+    with get_session() as session:
+        query = (
+            session.query(TrendCandidate)
+            .filter(TrendCandidate.detected_at >= since_time)
+        )
+        
+        if platform != 'all':
+            platform_id = get_platform_id(session, platform)
+            query = query.filter(TrendCandidate.platform_id == platform_id)
+        
+        candidates = (
+            query
+            .order_by(TrendCandidate.trend_score.desc())
+            .limit(limit)
+            .all()
+        )
+        
+        if not candidates:
+            console.print("[yellow]No trends found. Try running 'collect' and 'analyze' first.[/]")
+            return
+        
+        # Get platform names
+        platform_names = {p.id: p.name for p in session.query(Platform).all()}
+        
+        # Display trends table
+        table = Table(title=f"Trending Memes ({len(candidates)} found)")
+        table.add_column("#", justify="right", style="dim")
+        table.add_column("Term", style="cyan", max_width=40)
+        table.add_column("Type")
+        table.add_column("Platform")
+        table.add_column("Freq", justify="right")
+        table.add_column("Accel", justify="right")
+        table.add_column("Score", justify="right", style="green")
+        
+        for i, c in enumerate(candidates, 1):
+            platform_name = platform_names.get(c.platform_id, '?')
+            cross = "🌐" if c.cross_platform else ""
+            
+            table.add_row(
+                str(i),
+                f"{cross}{c.term[:40]}",
+                c.term_type,
+                platform_name,
+                str(c.current_frequency),
+                f"{c.acceleration_score:.1f}x",
+                f"{c.trend_score:.1f}",
+            )
+        
+        console.print(table)
+        
+        # Show details for top trend
+        if candidates:
+            top = candidates[0]
+            console.print(f"\n[bold]Top Trend Details:[/]")
+            console.print(f"  Term: [cyan]{top.term}[/]")
+            console.print(f"  Detected: {top.detected_at.strftime('%Y-%m-%d %H:%M')} UTC")
+            console.print(f"  Baseline frequency: {top.baseline_frequency:.1f}")
+            console.print(f"  Z-score: {top.z_score:.2f}")
+            if top.cross_platform:
+                console.print(f"  Platforms: [green]{top.platforms_seen}[/]")
+            if top.example_refs:
+                console.print(f"  Examples:")
+                for ref in top.example_refs[:3]:
+                    console.print(f"    • {ref}")
+
+
+@cli.command()
+@click.option(
+    '--interval', '-i',
+    type=int,
+    default=None,
+    help='Collection interval in minutes (default: from config)'
+)
+def run(interval: int):
+    """Start the scheduler for continuous monitoring."""
+    from .scheduler import Scheduler, MemeRadarOrchestrator
+    from .database import init_db as db_init
+    
+    # Ensure database is initialized
+    db_init()
+    
+    if interval:
+        # Override config
+        from .config import config
+        config._config['scheduler']['interval_minutes'] = interval
+    
+    console.print(Panel.fit(
+        "[bold green]Meme Radar[/]\n"
+        f"Starting continuous monitoring...\n"
+        f"Interval: {interval or 'config default'} minutes\n"
+        "Press Ctrl+C to stop",
+        title="🎯 Meme Radar",
+    ))
+    
+    scheduler = Scheduler()
+    
+    try:
+        scheduler.start(blocking=True)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Stopping scheduler...[/]")
+        scheduler.stop()
+        console.print("[green]Scheduler stopped[/]")
+
+
+@cli.command()
+def status():
+    """Show system status and statistics."""
+    from .database import get_session
+    from .models import Post, Comment, TrendCandidate, Platform
+    
+    with get_session() as session:
+        # Count records
+        post_count = session.query(Post).count()
+        comment_count = session.query(Comment).count()
+        trend_count = session.query(TrendCandidate).count()
+        
+        # Posts per platform
+        platforms = session.query(Platform).all()
+        platform_stats = {}
+        for p in platforms:
+            count = session.query(Post).filter_by(platform_id=p.id).count()
+            platform_stats[p.name] = count
+        
+        # Recent activity
+        recent_posts = (
+            session.query(Post)
+            .order_by(Post.collected_at.desc())
+            .limit(1)
+            .first()
+        )
+        
+        recent_trend = (
+            session.query(TrendCandidate)
+            .order_by(TrendCandidate.detected_at.desc())
+            .limit(1)
+            .first()
+        )
+    
+    console.print(Panel.fit("[bold]Meme Radar Status[/]", title="📊"))
+    
+    console.print(f"\n[bold]Database Statistics:[/]")
+    console.print(f"  Total posts: {post_count:,}")
+    console.print(f"  Total comments: {comment_count:,}")
+    console.print(f"  Detected trends: {trend_count:,}")
+    
+    console.print(f"\n[bold]Posts by Platform:[/]")
+    for platform, count in platform_stats.items():
+        console.print(f"  {platform}: {count:,}")
+    
+    console.print(f"\n[bold]Recent Activity:[/]")
+    if recent_posts:
+        console.print(f"  Last post collected: {recent_posts.collected_at.strftime('%Y-%m-%d %H:%M')} UTC")
+    else:
+        console.print("  No posts collected yet")
+    
+    if recent_trend:
+        console.print(f"  Last trend detected: {recent_trend.detected_at.strftime('%Y-%m-%d %H:%M')} UTC")
+    else:
+        console.print("  No trends detected yet")
+
+
+def main():
+    """Entry point for the CLI."""
+    cli()
+
+
+if __name__ == '__main__':
+    main()
