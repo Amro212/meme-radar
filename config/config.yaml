@@ -20,11 +20,11 @@ analysis:
   # Number of historical windows to keep for baseline calculation
   history_windows: 6
   # Minimum posts/comments for a term to be considered
-  min_frequency: 10
+  min_frequency: 5
   # Z-score threshold for anomaly detection
   z_score_threshold: 2.0
   # Acceleration ratio threshold
-  acceleration_threshold: 3.0
+  acceleration_threshold: 1.5
   # Minimum engagement score
   min_engagement: 5
 

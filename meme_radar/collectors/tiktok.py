@@ -50,12 +50,23 @@ class TikTokCollector(BaseCollector):
             else:
                 print("[TikTok] No ms_token provided - may encounter 10201 error")
             
-            await self._api.create_sessions(
-                ms_tokens=ms_tokens,
-                num_sessions=1,
-                sleep_after=5,
-                headless=True,
-            )
+            # Retry session creation up to 3 times
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    await self._api.create_sessions(
+                        ms_tokens=ms_tokens,
+                        num_sessions=1,
+                        sleep_after=5,
+                        headless=False,
+                    )
+                    break  # Success
+                except Exception as e:
+                    print(f"[TikTok] Session creation failed (attempt {attempt+1}/{max_retries}): {e}")
+                    if attempt == max_retries - 1:
+                        raise e
+                    import asyncio
+                    await asyncio.sleep(5)  # Wait before retry
         return self._api
     
     def collect(self) -> CollectionResult:
@@ -79,6 +90,12 @@ class TikTokCollector(BaseCollector):
             return result
         
         try:
+            # Fix for Windows asyncio event loop issue with Playwright
+            import sys
+            import asyncio
+            if sys.platform == 'win32':
+                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
             # Run async collection
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
