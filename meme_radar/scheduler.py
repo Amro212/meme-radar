@@ -308,6 +308,22 @@ class MemeRadarOrchestrator:
             results['cross_platform'] = cross_analyzer.analyze(since_hours=2.0)
             logger.info(f"Found {len(results['cross_platform'])} cross-platform trends")
             
+            # Lowkey creator detection
+            if self.config.get("lowkey_detection", "enabled", default=False):
+                logger.info("Running lowkey creator detection...")
+                try:
+                    from .analysis.lowkey_detector import LowkeyAnalyzer
+                    lowkey_analyzer = LowkeyAnalyzer(session)
+                    lowkey_results = lowkey_analyzer.run_full_analysis()
+                    results['lowkey'] = lowkey_results
+                    logger.info(
+                        f"Lowkey detection: {lowkey_results.get('hot_videos_found', 0)} hot videos, "
+                        f"{lowkey_results.get('watchlist_additions', 0)} watchlist additions"
+                    )
+                except Exception as e:
+                    logger.error(f"Lowkey detection error: {e}")
+                    results['lowkey'] = {'error': str(e)}
+            
             # Send notifications for high-value trends
             self._notify_trends(session)
         

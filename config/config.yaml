@@ -165,3 +165,42 @@ notifications:
     - "test"
     - "example"
 
+# Lowkey Creator Detection
+# Detect small/mid-size creators with viral outlier videos
+lowkey_detection:
+  enabled: true
+  
+  # Creator selection thresholds
+  min_followers: 5000
+  max_followers: 1000000
+  min_views: 250000
+  
+  # Metric thresholds (all must be met)
+  min_virality_ratio: 10.0      # views / followers
+  min_engagement_rate: 0.08     # (likes+comments+shares) / views
+  min_comment_intensity: 0.02   # comments / views
+  min_spike_factor: 3.0         # views / avg_views
+  
+  # Rolling stats window
+  history_video_count: 10
+  
+  # Watchlist settings
+  watchlist_drop_days: 30
+  
+  # Comment analysis
+  comments_per_video: 50
+  
+  # Processing limits (per run)
+  max_creators_per_run: 100
+  max_videos_per_run: 500
+  
+  # Analysis window
+  analysis_window_hours: 48
+  
+  # Meme-seed score weights (should sum to 1.0)
+  score_weights:
+    virality_ratio: 0.25
+    engagement_rate: 0.20
+    comment_intensity: 0.20
+    spike_factor: 0.20
+    repeated_phrases: 0.15

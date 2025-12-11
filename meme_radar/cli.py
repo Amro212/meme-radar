@@ -317,6 +317,160 @@ def status():
         console.print("  No trends detected yet")
 
 
+# =============================================================================
+# Lowkey Creator Detection Commands
+# =============================================================================
+
+@cli.group()
+def lowkey():
+    """Lowkey creator detection commands."""
+    pass
+
+
+@lowkey.command()
+def status():
+    """Show lowkey detection status and watchlist summary."""
+    from .database import get_session
+    from .models import Creator, HotVideo, Watchlist, CommentPhrase
+    
+    with get_session() as session:
+        # Count records
+        creator_count = session.query(Creator).count()
+        hot_video_count = session.query(HotVideo).count()
+        watchlist_active = session.query(Watchlist).filter_by(status="active").count()
+        watchlist_dropped = session.query(Watchlist).filter_by(status="dropped").count()
+        phrase_count = session.query(CommentPhrase).filter(CommentPhrase.video_count >= 2).count()
+        
+        # Recent activity
+        recent_hot = (
+            session.query(HotVideo)
+            .order_by(HotVideo.detected_at.desc())
+            .first()
+        )
+    
+    console.print(Panel.fit("[bold]Lowkey Creator Detection Status[/]", title="🔥"))
+    
+    console.print(f"\n[bold]Database:[/]")
+    console.print(f"  Creators tracked: {creator_count:,}")
+    console.print(f"  Hot videos detected: {hot_video_count:,}")
+    console.print(f"  Trending phrases: {phrase_count:,}")
+    
+    console.print(f"\n[bold]Watchlist:[/]")
+    console.print(f"  Active creators: [green]{watchlist_active}[/]")
+    console.print(f"  Dropped creators: [dim]{watchlist_dropped}[/]")
+    
+    if recent_hot:
+        console.print(f"\n[bold]Last Hot Video:[/]")
+        console.print(f"  Detected: {recent_hot.detected_at.strftime('%Y-%m-%d %H:%M')} UTC")
+        console.print(f"  Score: {recent_hot.meme_seed_score:.2f}")
+        console.print(f"  Views: {recent_hot.views:,}")
+
+
+@lowkey.command()
+@click.option('--limit', '-n', type=int, default=10, help='Number of creators to show')
+def top(limit: int):
+    """Show top meme-seed creators."""
+    from .database import get_session
+    from .analysis.lowkey_detector import LowkeyAnalyzer
+    
+    with get_session() as session:
+        analyzer = LowkeyAnalyzer(session)
+        creators = analyzer.get_top_creators(limit=limit)
+    
+    if not creators:
+        console.print("[yellow]No creators on watchlist yet. Run 'radar lowkey run' first.[/]")
+        return
+    
+    table = Table(title=f"Top {len(creators)} Meme-Seed Creators")
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("Username", style="cyan")
+    table.add_column("Followers", justify="right")
+    table.add_column("Max Virality", justify="right")
+    table.add_column("Max Spike", justify="right")
+    table.add_column("Score", justify="right", style="green")
+    table.add_column("Videos", justify="right")
+    
+    for i, c in enumerate(creators, 1):
+        table.add_row(
+            str(i),
+            f"@{c['username']}",
+            f"{c['followers']:,}" if c['followers'] else "?",
+            f"{c['max_virality_ratio']:.1f}x",
+            f"{c['max_spike_factor']:.1f}x",
+            f"{c['max_meme_seed_score']:.2f}",
+            str(c['qualifying_videos']),
+        )
+    
+    console.print(table)
+    
+    # Show details for top creator
+    if creators:
+        top_creator = creators[0]
+        console.print(f"\n[bold]Top Creator: @{top_creator['username']}[/]")
+        console.print(f"  First qualified: {top_creator['first_qualified'].strftime('%Y-%m-%d')}")
+        console.print(f"  Last qualified: {top_creator['last_qualified'].strftime('%Y-%m-%d')}")
+        
+        if top_creator['hot_videos']:
+            console.print(f"  Hot Videos:")
+            for v in top_creator['hot_videos'][:3]:
+                console.print(f"    • {v['views']:,} views, score {v['score']:.2f}")
+
+
+@lowkey.command(name='run')
+def run_analysis():
+    """Manually run lowkey creator detection."""
+    from .database import get_session
+    from .analysis.lowkey_detector import LowkeyAnalyzer
+    
+    console.print("[bold blue]Running lowkey creator detection...[/]")
+    
+    with get_session() as session:
+        analyzer = LowkeyAnalyzer(session)
+        results = analyzer.run_full_analysis()
+        session.commit()
+    
+    console.print(f"\n[bold green]✓ Detection complete![/]")
+    console.print(f"  Videos analyzed: {results['videos_analyzed']}")
+    console.print(f"  Hot videos found: {results['hot_videos_found']}")
+    console.print(f"  Creators updated: {results['creators_updated']}")
+    console.print(f"  Watchlist additions: {results['watchlist_additions']}")
+    console.print(f"  Phrases detected: {results['phrases_detected']}")
+
+
+@lowkey.command()
+def phrases():
+    """Show trending comment phrases."""
+    from .database import get_session
+    from .analysis.lowkey_detector import CommentCultureAnalyzer
+    from .config import config
+    
+    with get_session() as session:
+        analyzer = CommentCultureAnalyzer(session, config)
+        phrases = analyzer.get_trending_phrases(limit=20)
+    
+    if not phrases:
+        console.print("[yellow]No trending phrases found yet.[/]")
+        return
+    
+    table = Table(title="Trending Comment Phrases")
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("Phrase", style="cyan", max_width=50)
+    table.add_column("Videos", justify="right")
+    table.add_column("Occurrences", justify="right")
+    table.add_column("Avg Likes", justify="right")
+    
+    for i, p in enumerate(phrases, 1):
+        table.add_row(
+            str(i),
+            p['phrase'][:50],
+            str(p['video_count']),
+            str(p['total_occurrences']),
+            f"{p['avg_likes']:.1f}",
+        )
+    
+    console.print(table)
+
+
 def main():
     """Entry point for the CLI."""
     cli()
