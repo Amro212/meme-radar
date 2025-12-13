@@ -183,47 +183,73 @@ class LowkeyAnalyzer:
         """
         Evaluate if a video qualifies as "lowkey but juicy".
         
+        Since TikTok API doesn't reliably return view counts, we use
+        likes as the primary metric for viral detection.
+        
         Returns HotVideo if it qualifies, None otherwise.
         """
         if not creator:
             return None
         
         # Get raw metrics from post
-        views = post.raw_metadata.get('views', 0) if post.raw_metadata else 0
+        # Try multiple keys for views (TikTok API inconsistency)
+        views = 0
+        if post.raw_metadata:
+            views = (
+                post.raw_metadata.get('play_count', 0) or
+                post.raw_metadata.get('views', 0) or
+                post.raw_metadata.get('playCount', 0) or
+                0
+            )
+        
         likes = post.likes or 0
         comments = post.comments_count or 0
         shares = post.shares or 0
         
-        # Skip if no view data
-        if views < self.min_views:
+        # If no views data, estimate from likes (typical TikTok ratio ~15:1)
+        if views == 0 and likes > 0:
+            views = likes * 15  # Estimated views
+        
+        # Minimum engagement threshold (use likes if views unavailable)
+        min_likes = self.config.get("lowkey_detection", "min_likes", default=100000)
+        if likes < min_likes:
             return None
         
-        # Check follower range (skip if unknown/out of range)
+        # Skip very large accounts (we want "lowkey" creators)
+        # But allow if follower_count is 0 (unknown)
         if creator.follower_count > 0:
-            if creator.follower_count < self.min_followers:
-                return None
             if creator.follower_count > self.max_followers:
                 return None
         
         # Calculate metrics
-        virality_ratio = views / max(creator.follower_count, 1)
-        engagement_rate = (likes + comments + shares) / max(views, 1)
-        comment_intensity = comments / max(views, 1)
+        # Virality: How much this exceeds their follower base
+        if creator.follower_count > 0:
+            virality_ratio = views / creator.follower_count
+        else:
+            # Unknown followers - estimate virality from engagement
+            virality_ratio = (likes + comments + shares) / 10000  # Arbitrary scale
         
-        # Get creator's average views for spike factor
+        # Engagement rate (if views available)
+        if views > 0:
+            engagement_rate = (likes + comments + shares) / views
+            comment_intensity = comments / views
+        else:
+            # Use likes-based ratios
+            engagement_rate = comments / max(likes, 1)  # Comment-to-like ratio
+            comment_intensity = comments / max(likes, 1)
+        
+        # Spike factor: How much this beats their own average
         latest_stats = self._get_latest_stats(creator.id)
-        avg_views = latest_stats.avg_views if latest_stats else 0
-        spike_factor = views / max(avg_views, 1)
+        if latest_stats and latest_stats.avg_likes > 0:
+            spike_factor = likes / latest_stats.avg_likes
+        else:
+            spike_factor = 1.0  # No baseline
         
-        # Check all thresholds
-        if virality_ratio < self.min_virality_ratio:
-            return None
-        if engagement_rate < self.min_engagement_rate:
-            return None
-        if comment_intensity < self.min_comment_intensity:
-            return None
-        if avg_views > 0 and spike_factor < self.min_spike_factor:
-            return None
+        # Check spike threshold (this is the key metric)
+        min_spike = self.config.get("lowkey_detection", "min_spike_factor", default=3.0)
+        if latest_stats and latest_stats.avg_likes > 0:
+            if spike_factor < min_spike:
+                return None
         
         # Check if already recorded
         existing = (
@@ -240,7 +266,7 @@ class LowkeyAnalyzer:
             engagement_rate=engagement_rate,
             comment_intensity=comment_intensity,
             spike_factor=spike_factor,
-            phrase_score=0.0,  # Will be updated by comment analyzer
+            phrase_score=0.0,
         )
         
         # Create hot video record
@@ -264,7 +290,7 @@ class LowkeyAnalyzer:
         
         logger.info(
             f"Hot video detected: @{creator.username} - "
-            f"virality={virality_ratio:.1f}x, engagement={engagement_rate:.1%}, "
+            f"likes={likes:,}, spike={spike_factor:.1f}x, "
             f"score={meme_seed_score:.2f}"
         )
         

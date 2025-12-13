@@ -341,12 +341,19 @@ def status():
         watchlist_dropped = session.query(Watchlist).filter_by(status="dropped").count()
         phrase_count = session.query(CommentPhrase).filter(CommentPhrase.video_count >= 2).count()
         
-        # Recent activity
+        # Recent activity - extract data while session is open
         recent_hot = (
             session.query(HotVideo)
             .order_by(HotVideo.detected_at.desc())
             .first()
         )
+        recent_hot_data = None
+        if recent_hot:
+            recent_hot_data = {
+                'detected_at': recent_hot.detected_at,
+                'score': recent_hot.meme_seed_score,
+                'views': recent_hot.views,
+            }
     
     console.print(Panel.fit("[bold]Lowkey Creator Detection Status[/]", title="🔥"))
     
@@ -359,11 +366,11 @@ def status():
     console.print(f"  Active creators: [green]{watchlist_active}[/]")
     console.print(f"  Dropped creators: [dim]{watchlist_dropped}[/]")
     
-    if recent_hot:
+    if recent_hot_data:
         console.print(f"\n[bold]Last Hot Video:[/]")
-        console.print(f"  Detected: {recent_hot.detected_at.strftime('%Y-%m-%d %H:%M')} UTC")
-        console.print(f"  Score: {recent_hot.meme_seed_score:.2f}")
-        console.print(f"  Views: {recent_hot.views:,}")
+        console.print(f"  Detected: {recent_hot_data['detected_at'].strftime('%Y-%m-%d %H:%M')} UTC")
+        console.print(f"  Score: {recent_hot_data['score']:.2f}")
+        console.print(f"  Views: {recent_hot_data['views']:,}")
 
 
 @lowkey.command()

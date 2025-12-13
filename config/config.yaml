@@ -53,19 +53,23 @@ tiktok:
   # Paste your ms_token here (get from browser cookies - expires frequently!)
   ms_token: "pAvoM4_c0KMj4hKZnI54zBlFv9omNyfqKb3KIWDwebgECtqUUaS86579AsikXOLyR6mcr70gjqMvAB9DhOoclRcez59mdZl4D_PCOaro3IrAK5EDq6UzMs4I4bEq9O0Qk0xUT6OQLSv7IQ=="
   # Number of trending videos to fetch per run
-  trending_limit: 30
+  trending_limit: 50
   # TikTok users to monitor (medium-sized accounts that catch trends early)
   users:
     - "girl_on_couch"        # Originated "Man in Finance" trend
     - "joolieannie"          # "Very Demure" trend creator
     - "kelleyheyer"          # Apple Dance creator
     - "memegod"              # Fast trend adoption
+    - "_caileng"             # Fast trend adoption
   # Hashtags to monitor for memecoin potential
   hashtags:
-    - "brainrot"             # Viral nonsense (memecoin material)
+    - "brainrot"
     - "meme"
     - "viral"
     - "fyp"
+    - "trending"
+    - "comedy"
+    - "funny"
   # Max posts per user/hashtag
   max_posts_per_source: 20
 
@@ -174,6 +178,7 @@ lowkey_detection:
   min_followers: 5000
   max_followers: 1000000
   min_views: 250000
+  min_likes: 100000  # Primary metric since TikTok API doesn't return views
   
   # Metric thresholds (all must be met)
   min_virality_ratio: 10.0      # views / followers
