@@ -47,18 +47,21 @@ twitter:
   max_tweets_per_query: 100
 
 # Platform: TikTok
-# Get ms_token from browser: Open TikTok > F12 > Application > Cookies > msToken
+# TikTok Configuration
+# 
+# SETUP: Export your TikTok cookies to tiktok_cookies.json in project root
+# 1. Install "EditThisCookie" browser extension
+# 2. Go to TikTok.com and log in
+# 3. Click the cookie icon > Export > Save as tiktok_cookies.json
+#
 tiktok:
   enabled: true
-  # Paste your ms_token here (get from browser cookies - expires frequently!)
+  # Fallback ms_token (used if cookies file not found)
   ms_token: "pAvoM4_c0KMj4hKZnI54zBlFv9omNyfqKb3KIWDwebgECtqUUaS86579AsikXOLyR6mcr70gjqMvAB9DhOoclRcez59mdZl4D_PCOaro3IrAK5EDq6UzMs4I4bEq9O0Qk0xUT6OQLSv7IQ=="
-  # Number of trending videos to fetch per run
-  trending_limit: 50
   # TikTok users to monitor (medium-sized accounts that catch trends early)
   users:
     - "joolieannie"          # "Very Demure" trend creator
-    - "kelleyheyer"          # Apple Dance creator
-    - "memegod"              # Fast trend adoption
+    - "memegodfilms"         # Fast trend adoption
     - "_caileng"             # Fast trend adoption
     - "dailydoseofinternet.yt"
     - "pubity"               # Mass aggregator. Use as a "Mainstream/Saturation" indicator.
@@ -79,6 +82,8 @@ tiktok:
     - "funny"
   # Max posts per user/hashtag
   max_posts_per_source: 20
+  # Filter out videos older than this (days) - helps skip pinned/old viral videos
+  max_video_age_days: 7
 
 # Platform: Instagram
 instagram:

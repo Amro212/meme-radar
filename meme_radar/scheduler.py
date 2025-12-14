@@ -362,7 +362,7 @@ class MemeRadarOrchestrator:
                 notifier.notify_trend(
                     term=trend.term,
                     acceleration=trend.acceleration_score,
-                    frequency=trend.frequency,
+                    frequency=trend.current_frequency,
                     platform=trend.platform.name if trend.platform else "unknown",
                     zscore=trend.z_score,
                     example_url=example_url,

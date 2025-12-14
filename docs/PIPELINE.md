@@ -5,6 +5,10 @@
 Meme Radar is a TikTok trend detection system that identifies "lowkey but juicy" creators - 
 small/mid-size accounts with viral outlier videos and strong engagement.
 
+**Recent Enhancements:**
+- ✅ Auto ms_token refresh (1-hour intervals)
+- ✅ Ratio-based signal detection (shares, discourse patterns)
+
 ---
 
 ## Pipeline Flow (ASCII)
@@ -21,21 +25,41 @@ small/mid-size accounts with viral outlier videos and strong engagement.
            │
            ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
+│  STEP 0: TOKEN REFRESH (NEW!)                                               │
+│  (meme_radar/token_manager.py)                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   Every 1 hour:                                                             │
+│   ┌──────────────────────────────────────────────────────────────────────┐  │
+│   │  1. Launch Playwright browser (headless)                             │  │
+│   │  2. Navigate to TikTok.com                                           │  │
+│   │  3. Extract msToken cookie                                           │  │
+│   │  4. Cache token for next collection                                  │  │
+│   └──────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│   Output: Fresh ms_token (124 chars)                                        │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
 │  STEP 1: COLLECTION                                                          │
 │  (meme_radar/collectors/tiktok.py)                                          │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│   TikTok API (via TikTokApi library)                                        │
+│   TikTok API (via TikTokApi library + fresh token)                          │
 │         │                                                                    │
-│         ├──► Trending Videos (top 50)                                       │
+│         ├──► Trending Videos (top 50) [Currently blocked by TikTok]         │
 │         │                                                                    │
-│         ├──► Specific Users:                                                │
-│         │    @girl_on_couch, @joolieannie, @kelleyheyer, @memegod           │
+│         ├──► Specific Users (13 accounts):                                  │
+│         │    @joolieannie, @kelleyheyer, @memegod, @_caileng,               │
+│         │    @dailydoseofinternet.yt, @pubity, @daquan, @dailydot,          │
+│         │    @mashable, @cocomocoe, @knowyourmeme, @thealgorythm, @noxaasht │
 │         │                                                                    │
-│         └──► Hashtags:                                                      │
-│              #brainrot, #meme, #viral, #fyp, #trending, #comedy, #funny     │
+│         └──► Hashtags (6 tags):                                             │
+│              #brainrot, #meme, #viral, #trending, #comedy, #funny           │
 │                                                                              │
-│   Output: ~60-100 posts per run                                             │
+│   Output: ~220 posts per run                                                │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
            │
@@ -75,7 +99,7 @@ small/mid-size accounts with viral outlier videos and strong engagement.
            │
            ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  STEP 4: LOWKEY CREATOR DETECTION (THE KEY FEATURE)                         │
+│  STEP 4: LOWKEY CREATOR DETECTION (ENHANCED!)                               │
 │  (meme_radar/analysis/lowkey_detector.py)                                   │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
@@ -85,23 +109,34 @@ small/mid-size accounts with viral outlier videos and strong engagement.
 │       │  └── Stores: username, first_seen, follower_count              │   │
 │       └─────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
-│   4B. Score the video:                                                      │
+│   4B. Calculate Ratio Metrics (NEW!):                                       │
 │       ┌─────────────────────────────────────────────────────────────────┐   │
-│       │  • Check min_likes threshold (100k default)                      │   │
-│       │  • Check max_followers (1M - we want "lowkey" accounts)         │   │
-│       │  • Calculate SPIKE FACTOR = likes / avg_likes                   │   │
-│       │  • Calculate VIRALITY RATIO = estimated_views / followers       │   │
-│       │  • Calculate ENGAGEMENT RATE                                    │   │
-│       │  • Calculate MEME-SEED SCORE (0.0 - 1.0)                       │   │
+│       │  • LIKES-TO-VIEWS RATIO                                          │   │
+│       │    Low (1:50) + High Comments = "Discourse" signal              │   │
+│       │                                                                  │   │
+│       │  • SHARES-TO-LIKES RATIO                                         │   │
+│       │    High (>10%) = "Dark Social" spreading via DMs                │   │
+│       │                                                                  │   │
+│       │  • SPIKE FACTOR = likes / avg_likes                             │   │
+│       │  • COMMENT INTENSITY = comments / views                         │   │
 │       └─────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
-│   4C. If video qualifies (spike >= 3x, likes >= 100k):                      │
+│   4C. Calculate Meme-Seed Score (NEW WEIGHTS!):                             │
 │       ┌─────────────────────────────────────────────────────────────────┐   │
-│       │  CREATE hot_video record with all metrics                       │   │
-│       │  UPDATE or CREATE watchlist entry for creator                   │   │
+│       │  shares_to_likes_ratio:  30% (ultimate viral metric)            │   │
+│       │  discourse_signal:       20% (controversial/confusing)          │   │
+│       │  spike_factor:           20% (beats own average)                │   │
+│       │  comment_intensity:      15%                                    │   │
+│       │  repeated_phrases:       15%                                    │   │
 │       └─────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
-│   4D. Update creator stats:                                                 │
+│   4D. If video qualifies (spike >= 3x, likes >= 100k):                      │
+│       ┌─────────────────────────────────────────────────────────────────┐   │
+│       │  CREATE hot_video with ratios + TikTok URL                      │   │
+│       │  UPDATE watchlist with profile + best video URLs                │   │
+│       └─────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│   4E. Update creator stats:                                                 │
 │       ┌─────────────────────────────────────────────────────────────────┐   │
 │       │  Calculate rolling averages from last 10 videos:                │   │
 │       │  avg_likes, avg_comments, avg_shares, avg_engagement_rate       │   │
@@ -114,15 +149,22 @@ small/mid-size accounts with viral outlier videos and strong engagement.
 │  STEP 5: OUTPUT (DATABASE TABLES)                                           │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                     │
-│   │  hot_videos  │  │  watchlist   │  │creator_stats │                     │
-│   │──────────────│  │──────────────│  │──────────────│                     │
-│   │ post_id      │  │ creator_id   │  │ creator_id   │                     │
-│   │ creator_id   │  │ status       │  │ avg_likes    │                     │
-│   │ likes        │  │ max_score    │  │ avg_comments │                     │
-│   │ spike_factor │  │ max_virality │  │ computed_at  │                     │
-│   │ meme_score   │  │ video_count  │  └──────────────┘                     │
-│   └──────────────┘  └──────────────┘                                        │
+│   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐             │
+│   │  hot_videos      │  │  watchlist       │  │creator_stats │             │
+│   │──────────────────│  │──────────────────│  │──────────────│             │
+│   │ post_id          │  │ creator_id       │  │ creator_id   │             │
+│   │ creator_id       │  │ status           │  │ avg_likes    │             │
+│   │ likes            │  │ max_score        │  │ avg_comments │             │
+│   │ shares           │  │ max_virality     │  │ computed_at  │             │
+│   │ spike_factor     │  │ video_count      │  └──────────────┘             │
+│   │ meme_score       │  │                  │                                │
+│   │ ──────────────── │  │ ──────────────── │                                │
+│   │ NEW COLUMNS:     │  │ NEW COLUMNS:     │                                │
+│   │ L/V ratio        │  │ profile_url      │                                │
+│   │ S/L ratio        │  │ best_video_url   │                                │
+│   │ is_discourse     │  │                  │                                │
+│   │ tiktok_url       │  │                  │                                │
+│   └──────────────────┘  └──────────────────┘                                │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
            │
@@ -138,7 +180,7 @@ small/mid-size accounts with viral outlier videos and strong engagement.
 │   ╰─────────────────────────────────╯                                       │
 │   Database:                                                                 │
 │     Creators tracked: 246                                                   │
-│     Hot videos detected: 21                                                 │
+│     Hot videos detected: 22                                                 │
 │   Watchlist:                                                                │
 │     Active creators: 18                                                     │
 │                                                                              │
@@ -155,25 +197,26 @@ small/mid-size accounts with viral outlier videos and strong engagement.
 
 ## Data Flow Summary
 
-    TikTok API
-        │
-        ▼
+    Token Manager → TikTok API
+                        │
+                        ▼
     ┌─────────┐     ┌──────────┐     ┌────────────┐     ┌────────────┐
     │  posts  │────►│ creators │────►│ hot_videos │────►│ watchlist  │
     └─────────┘     └──────────┘     └────────────┘     └────────────┘
-         60/run        246 total        21 detected       18 active
+        220/run        246 total        22 detected       18 active
 
 
 ## Key Metrics Explained
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  METRIC              │ FORMULA                    │ PURPOSE                │
-├──────────────────────┼────────────────────────────┼────────────────────────┤
-│  Spike Factor        │ likes / avg_likes          │ Outperformance vs self │
-│  Virality Ratio      │ est_views / followers      │ Reach beyond followers │
-│  Engagement Rate     │ (likes+comments) / views   │ Interaction quality    │
-│  Meme-Seed Score     │ Weighted combination       │ Overall viral potential│
-└──────────────────────┴────────────────────────────┴────────────────────────┘
+│  METRIC                 │ FORMULA                    │ PURPOSE             │
+├─────────────────────────┼────────────────────────────┼─────────────────────┤
+│  Spike Factor           │ likes / avg_likes          │ Outperform vs self  │
+│  Shares-to-Likes Ratio  │ shares / likes             │ Dark Social spread  │
+│  Likes-to-Views Ratio   │ likes / views              │ Discourse detection │
+│  Discourse Signal       │ Low L/V + High Comments    │ Controversial meme  │
+│  Meme-Seed Score        │ Weighted combination       │ Overall potential   │
+└─────────────────────────┴────────────────────────────┴─────────────────────┘
 
 
 ## Database Location
@@ -218,20 +261,47 @@ Key settings:
 ```yaml
 tiktok:
   trending_limit: 50     # How many trending videos to fetch
-  users: [...]           # Specific accounts to monitor
-  hashtags: [...]        # Hashtags to scrape
+  users: [...]           # 13 specific accounts to monitor
+  hashtags: [...]        # 6 hashtags to scrape
 
 lowkey_detection:
   min_likes: 100000      # Minimum likes to qualify
   max_followers: 1000000 # Skip accounts above this
   min_spike_factor: 3.0  # Must be 3x their average
+  
+  # NEW: Ratio thresholds
+  discourse_ratio_threshold: 0.02  # L/V below this = discourse
+  high_share_threshold: 0.10       # S/L above this = Dark Social
+  
+  # NEW: Score weights
+  score_weights:
+    share_ratio: 0.30          # Highest priority
+    discourse_signal: 0.20
+    spike_factor: 0.20
+    comment_intensity: 0.15
+    repeated_phrases: 0.15
 ```
 
 
 ## Current Stats (as of last run)
 
-- Posts collected: 325
+- Posts collected: 220 per run
 - Creators tracked: 246
-- Hot videos detected: 21
+- Hot videos detected: 22
 - Active watchlist: 18 creators
+- Token refresh: Every 1 hour
 - Top creator: @joolieannie (score: 0.56)
+
+
+## Recent Enhancements
+
+### 1. Auto Token Refresh
+- **File:** `meme_radar/token_manager.py`
+- **Frequency:** Every 1 hour
+- **Method:** Playwright browser automation
+- **Fallback:** Config token if refresh fails
+
+### 2. Ratio-Based Detection
+- **Shares-to-Likes:** Weighted 30% (Dark Social spreading)
+- **Discourse Signal:** Low L/V ratio + high comments = controversial content
+- **TikTok URLs:** Direct links stored for hot videos and watchlist entries

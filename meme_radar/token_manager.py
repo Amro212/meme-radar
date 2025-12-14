@@ -52,10 +52,10 @@ class TokenManager:
         
         try:
             async with async_playwright() as p:
-                # Launch browser
-                browser = await p.chromium.launch(headless=True)
+                # Launch webkit browser (less detectable than chromium)
+                browser = await p.webkit.launch(headless=False)
                 context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
                 )
                 page = await context.new_page()
                 
