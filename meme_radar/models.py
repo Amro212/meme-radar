@@ -241,6 +241,9 @@ class TrendCandidate(Base):
     # Example references (JSON list of post IDs or URLs)
     example_refs: Mapped[Optional[list]] = mapped_column(JSON)
     
+    # Relationship
+    platform: Mapped[Optional["Platform"]] = relationship()
+    
     __table_args__ = (
         Index("ix_trend_candidates_detected_at", "detected_at"),
         Index("ix_trend_candidates_score", "trend_score"),

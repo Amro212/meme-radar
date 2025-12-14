@@ -44,6 +44,38 @@ def init_db():
 
 
 @cli.command()
+def telegram():
+    """Test Telegram bot connection."""
+    from .config import Config
+    from .telegram_notifier import TelegramNotifier
+    
+    config = Config()
+    notifier = TelegramNotifier(config)
+    
+    if not config.get("telegram", "enabled"):
+        console.print("[yellow]Telegram is disabled in config[/]")
+        console.print("\nTo enable:")
+        console.print("1. Edit config/config.yaml")
+        console.print("2. Set telegram.enabled: true")
+        console.print("3. Add your bot_token and chat_id")
+        return
+    
+    if not notifier.is_available():
+        console.print("[red]Telegram not configured properly[/]")
+        console.print("\nCheck that bot_token and chat_id are set in config/config.yaml")
+        return
+    
+    console.print("[blue]Sending test message to Telegram...[/]")
+    
+    if notifier.send_test_message():
+        console.print("[bold green]✓ Telegram connected successfully![/]")
+        console.print("Check your Telegram for the test message")
+    else:
+        console.print("[bold red]✗ Failed to send message[/]")
+        console.print("Check your bot_token and chat_id")
+
+
+@cli.command()
 @click.option(
     '--platform', '-p',
     type=click.Choice(['all', 'twitter', 'tiktok', 'instagram', 'reddit']),

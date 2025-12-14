@@ -4,6 +4,7 @@ TikTok collector using TikTokApi.
 Uses browser cookies for authentication to bypass bot detection.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -92,52 +93,28 @@ class TikTokCollector(BaseCollector):
             return None
     
     async def _init_api(self, ms_token: Optional[str] = None, cookies: Optional[Dict] = None):
-        """Initialize the TikTokApi with cookies."""
+        """Initialize the TikTokApi with ms_token."""
         from TikTokApi import TikTokApi
         
         self._api = TikTokApi()
         
-        # Prepare tokens
+        # Use ms_token (either from cookies or config)
         ms_tokens = [ms_token] if ms_token else []
         
-        # Session config - use browser context with cookies
+        # Simple session config
         session_config = {
             "ms_tokens": ms_tokens,
             "num_sessions": 1,
             "sleep_after": 3,
-            "headless": False,  # Must be False for reliable collection
+            "headless": False,
             "browser": "chromium",
         }
         
-        # If we have cookies, we'll inject them after session creation
-        self._cookies_to_inject = cookies
-        
         # Create session
-        try:
-            await self._api.create_sessions(**session_config)
-            print("[TikTok] Session created")
-            
-            # Inject cookies into the browser context
-            if cookies and hasattr(self._api, '_sessions') and self._api._sessions:
-                session = self._api._sessions[0]
-                if hasattr(session, 'context'):
-                    context = session.context
-                    # Convert to Playwright cookie format
-                    pw_cookies = []
-                    for name, value in cookies.items():
-                        pw_cookies.append({
-                            'name': name,
-                            'value': value,
-                            'domain': '.tiktok.com',
-                            'path': '/'
-                        })
-                    await context.add_cookies(pw_cookies)
-                    print(f"[TikTok] Injected {len(pw_cookies)} cookies into browser")
-            
-            return self._api
-        except Exception as e:
-            print(f"[TikTok] Session creation failed: {e}")
-            raise e
+        await self._api.create_sessions(**session_config)
+        print("[TikTok] Session created")
+        
+        return self._api
     
     def collect(self) -> CollectionResult:
         """Collect TikTok videos from users and hashtags."""
@@ -203,32 +180,46 @@ class TikTokCollector(BaseCollector):
             api = await self._init_api(ms_token, cookies)
             
             # Collect from users
-            for username in users:
+            for idx, username in enumerate(users):
                 try:
+                    # Add delay between accounts to avoid rate limiting (except first)
+                    if idx > 0:
+                        await asyncio.sleep(2)
+                    
                     print(f"[TikTok] @{username}...")
                     user = api.user(username)
                     count = 0
                     skipped = 0
-                    async for video in user.videos(count=max_per_source + 10):  # Fetch extra to filter
-                        if count >= max_per_source:
-                            break
-                        try:
-                            post = await self._process_video(video)
-                            # Skip old/pinned videos
-                            if post.created_at and post.created_at < cutoff_date:
-                                skipped += 1
-                                continue
-                            result.posts.append(post)
-                            count += 1
-                        except Exception:
-                            pass
+                    
+                    # Add timeout for user video iteration
+                    try:
+                        async for video in user.videos(count=max_per_source + 10):
+                            if count >= max_per_source:
+                                break
+                            try:
+                                post = await self._process_video(video)
+                                # Skip old/pinned videos
+                                if post.created_at and post.created_at < cutoff_date:
+                                    skipped += 1
+                                    continue
+                                result.posts.append(post)
+                                count += 1
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        # If iteration fails, might be temporary block
+                        if count == 0:
+                            print(f"[TikTok] @{username}: failed to fetch ({str(e)[:40]})")
+                            result.errors.append(f"@{username}: fetch failed")
+                            continue
+                    
                     if count > 0:
                         msg = f"[TikTok] @{username}: {count} videos ✓"
                         if skipped > 0:
                             msg += f" (skipped {skipped} old)"
                         print(msg)
                     else:
-                        print(f"[TikTok] @{username}: no videos (may be blocked)")
+                        print(f"[TikTok] @{username}: no videos")
                         result.errors.append(f"@{username}: no videos")
                 except Exception as e:
                     error = str(e)[:60]
