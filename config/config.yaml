@@ -56,17 +56,24 @@ tiktok:
   trending_limit: 50
   # TikTok users to monitor (medium-sized accounts that catch trends early)
   users:
-    - "girl_on_couch"        # Originated "Man in Finance" trend
     - "joolieannie"          # "Very Demure" trend creator
     - "kelleyheyer"          # Apple Dance creator
     - "memegod"              # Fast trend adoption
     - "_caileng"             # Fast trend adoption
+    - "dailydoseofinternet.yt"
+    - "pubity"               # Mass aggregator. Use as a "Mainstream/Saturation" indicator.
+    - "daquan"               # Bridge between Black Twitter humor and TikTok.
+    - "dailydot"             # Rapid reporting on internet drama/memes.
+    - "mashable"             # Tech/Culture news validation.
+    - "cocomocoe"            # Premier trend forecaster. Best source for naming new trends.
+    - "knowyourmeme"         # Verification. Confirms "Established" status and history.
+    - "thealgorythm"         # Algorithmic culture analyst. Focuses on how the feed changes culture.
+    - "noxaasht"             # 
   # Hashtags to monitor for memecoin potential
   hashtags:
     - "brainrot"
     - "meme"
     - "viral"
-    - "fyp"
     - "trending"
     - "comedy"
     - "funny"

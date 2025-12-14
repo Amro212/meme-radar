@@ -348,8 +348,16 @@ class HotVideo(Base):
     comment_intensity: Mapped[float] = mapped_column(Float, default=0.0)
     spike_factor: Mapped[float] = mapped_column(Float, default=0.0)
     
+    # Ratio analysis (per user's criteria)
+    likes_to_views_ratio: Mapped[float] = mapped_column(Float, default=0.0)
+    shares_to_likes_ratio: Mapped[float] = mapped_column(Float, default=0.0)
+    is_discourse_signal: Mapped[bool] = mapped_column(Boolean, default=False)
+    
     # Final meme-seed score
     meme_seed_score: Mapped[float] = mapped_column(Float, default=0.0)
+    
+    # Direct TikTok link for reference
+    tiktok_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     
     # Relationships
     post: Mapped["Post"] = relationship()
@@ -388,6 +396,10 @@ class Watchlist(Base):
     max_meme_seed_score: Mapped[float] = mapped_column(Float, default=0.0)
     
     qualifying_video_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # TikTok profile link for reference
+    tiktok_profile_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    best_video_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     
     # Relationships
     creator: Mapped["Creator"] = relationship(back_populates="watchlist_entry")

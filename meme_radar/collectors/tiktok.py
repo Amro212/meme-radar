@@ -4,10 +4,14 @@ TikTok collector using TikTokApi.
 Fetches trending videos and their comments to detect emerging memes.
 """
 
+import logging
 from datetime import datetime
 from typing import Optional
 
 from .base import BaseCollector, CollectionResult, CommentEvent, PostEvent
+
+# Suppress noisy TikTokApi 10201 errors (expected for trending endpoint)
+logging.getLogger("TikTokApi.tiktok").setLevel(logging.CRITICAL)
 
 
 class TikTokCollector(BaseCollector):
@@ -36,19 +40,23 @@ class TikTokCollector(BaseCollector):
         return self._api_available
     
     async def _init_api(self):
-        """Initialize the TikTokApi."""
+        """Initialize the TikTokApi with pre-fetched token."""
         if self._api is None:
             from TikTokApi import TikTokApi
+            
             self._api = TikTokApi()
             
-            # Get ms_token from config (helps bypass 10201 error)
-            ms_token = self.config.get("tiktok", "ms_token")
+            # Use token already fetched in collect() before async context
+            ms_token = getattr(self, '_fresh_token', None)
+            
+            # Fall back to config token if no fresh token
+            if not ms_token:
+                ms_token = self.config.get("tiktok", "ms_token")
+            
             ms_tokens = [ms_token] if ms_token else []
             
-            if ms_tokens:
-                print(f"[TikTok] Using ms_token from config")
-            else:
-                print("[TikTok] No ms_token provided - may encounter 10201 error")
+            if not ms_tokens:
+                print("[TikTok] No ms_token available - may encounter 10201 error")
             
             # Retry session creation up to 3 times
             max_retries = 3
@@ -88,6 +96,25 @@ class TikTokCollector(BaseCollector):
                 "TikTokApi not installed. Install with: pip install TikTokApi playwright && playwright install"
             )
             return result
+        
+        # Refresh token BEFORE entering async context
+        from ..token_manager import get_token_manager
+        token_manager = get_token_manager()
+        
+        if token_manager.needs_refresh():
+            print("[TikTok] Token stale, refreshing before collection...")
+            fresh_token = token_manager.get_token_sync()
+            if fresh_token:
+                self._fresh_token = fresh_token
+                print(f"[TikTok] Got fresh token ({len(fresh_token)} chars)")
+            else:
+                print("[TikTok] Token refresh failed, will use config fallback")
+                self._fresh_token = None
+        else:
+            self._fresh_token = token_manager.get_cached_token()
+            age = token_manager.get_token_age_minutes()
+            if age:
+                print(f"[TikTok] Using cached token ({age:.0f} mins old)")
         
         try:
             # Fix for Windows asyncio event loop issue with Playwright

@@ -60,13 +60,17 @@ class LowkeyAnalyzer:
         self.analysis_window_hours = config.get("lowkey_detection", "analysis_window_hours", default=48)
         self.max_videos_per_run = config.get("lowkey_detection", "max_videos_per_run", default=500)
         
-        # Score weights
+        # Score weights (updated for ratio analysis)
         weights = config.get("lowkey_detection", "score_weights", default={})
-        self.w_virality = weights.get("virality_ratio", 0.25)
-        self.w_engagement = weights.get("engagement_rate", 0.20)
-        self.w_comment_intensity = weights.get("comment_intensity", 0.20)
+        self.w_share_ratio = weights.get("share_ratio", 0.30)  # Highest - "ultimate viral metric"
+        self.w_discourse = weights.get("discourse_signal", 0.20)  # Low L/V ratio + high comments
         self.w_spike_factor = weights.get("spike_factor", 0.20)
+        self.w_comment_intensity = weights.get("comment_intensity", 0.15)
         self.w_phrases = weights.get("repeated_phrases", 0.15)
+        
+        # Ratio thresholds
+        self.discourse_ratio_threshold = config.get("lowkey_detection", "discourse_ratio_threshold", default=0.02)
+        self.high_share_threshold = config.get("lowkey_detection", "high_share_threshold", default=0.10)
         
         # Sub-components
         self.stats_updater = CreatorStatsUpdater(session, self.history_video_count)
@@ -260,16 +264,30 @@ class LowkeyAnalyzer:
         if existing:
             return existing
         
-        # Calculate meme-seed score
+        # === RATIO ANALYSIS (per user's criteria) ===
+        
+        # Likes-to-Views ratio (low = discourse, high = generic)
+        likes_to_views_ratio = likes / max(views, 1)
+        
+        # Shares-to-Likes ratio (high = ultimate viral metric, "Dark Social")
+        shares_to_likes_ratio = shares / max(likes, 1)
+        
+        # Discourse signal: Low L/V ratio but high comments = controversial/confusing
+        is_discourse = (
+            likes_to_views_ratio < self.discourse_ratio_threshold and
+            comment_intensity > self.min_comment_intensity
+        )
+        
+        # === CALCULATE MEME-SEED SCORE ===
         meme_seed_score = self._calculate_meme_seed_score(
-            virality_ratio=virality_ratio,
-            engagement_rate=engagement_rate,
-            comment_intensity=comment_intensity,
+            shares_to_likes_ratio=shares_to_likes_ratio,
+            is_discourse=is_discourse,
             spike_factor=spike_factor,
+            comment_intensity=comment_intensity,
             phrase_score=0.0,
         )
         
-        # Create hot video record
+        # Create hot video record with all ratios
         hot_video = HotVideo(
             post_id=post.id,
             creator_id=creator.id,
@@ -282,7 +300,11 @@ class LowkeyAnalyzer:
             engagement_rate=engagement_rate,
             comment_intensity=comment_intensity,
             spike_factor=spike_factor,
+            likes_to_views_ratio=likes_to_views_ratio,
+            shares_to_likes_ratio=shares_to_likes_ratio,
+            is_discourse_signal=is_discourse,
             meme_seed_score=meme_seed_score,
+            tiktok_url=post.permalink,
         )
         
         self.session.add(hot_video)
@@ -307,31 +329,44 @@ class LowkeyAnalyzer:
     
     def _calculate_meme_seed_score(
         self,
-        virality_ratio: float,
-        engagement_rate: float,
-        comment_intensity: float,
+        shares_to_likes_ratio: float,
+        is_discourse: bool,
         spike_factor: float,
+        comment_intensity: float,
         phrase_score: float,
     ) -> float:
         """
         Calculate composite meme-seed score.
         
-        Normalizes each metric and applies weights.
+        Weights per user's criteria:
+        - shares_to_likes: 30% (ultimate viral metric, Dark Social)
+        - discourse_signal: 20% (low L/V + high comments = controversial)
+        - spike_factor: 20% (beats own average)
+        - comment_intensity: 15%
+        - repeated_phrases: 15%
         """
-        # Normalize metrics (simple log scaling for large values)
         import math
         
-        vr_norm = min(math.log10(virality_ratio + 1) / 2, 1.0)  # Cap at 100x
-        er_norm = min(engagement_rate / 0.20, 1.0)  # Cap at 20%
-        ci_norm = min(comment_intensity / 0.05, 1.0)  # Cap at 5%
-        sf_norm = min(math.log10(spike_factor + 1) / 1.5, 1.0)  # Cap at ~30x
+        # Normalize shares ratio (10%+ is excellent)
+        sr_norm = min(shares_to_likes_ratio / self.high_share_threshold, 1.0)
+        
+        # Discourse is binary boost
+        disc_norm = 1.0 if is_discourse else 0.0
+        
+        # Spike factor (log scale, cap at ~30x)
+        sf_norm = min(math.log10(spike_factor + 1) / 1.5, 1.0)
+        
+        # Comment intensity (cap at 5%)
+        ci_norm = min(comment_intensity / 0.05, 1.0)
+        
+        # Phrase score
         ph_norm = min(phrase_score, 1.0)
         
         score = (
-            vr_norm * self.w_virality +
-            er_norm * self.w_engagement +
-            ci_norm * self.w_comment_intensity +
+            sr_norm * self.w_share_ratio +
+            disc_norm * self.w_discourse +
             sf_norm * self.w_spike_factor +
+            ci_norm * self.w_comment_intensity +
             ph_norm * self.w_phrases
         )
         
@@ -485,12 +520,16 @@ class WatchlistManager:
             existing.max_spike_factor = max(
                 existing.max_spike_factor, hot_video.spike_factor
             )
+            # Update best video URL if this one has a higher score
+            if hot_video.meme_seed_score > existing.max_meme_seed_score:
+                existing.best_video_url = hot_video.tiktok_url
             existing.max_meme_seed_score = max(
                 existing.max_meme_seed_score, hot_video.meme_seed_score
             )
             return False
         else:
-            # Add new entry
+            # Add new entry with TikTok profile URL
+            profile_url = f"https://www.tiktok.com/@{creator.username}"
             entry = Watchlist(
                 creator_id=creator.id,
                 first_qualified_at=datetime.utcnow(),
@@ -500,6 +539,8 @@ class WatchlistManager:
                 max_spike_factor=hot_video.spike_factor,
                 max_meme_seed_score=hot_video.meme_seed_score,
                 qualifying_video_count=1,
+                tiktok_profile_url=profile_url,
+                best_video_url=hot_video.tiktok_url,
             )
             self.session.add(entry)
             return True
