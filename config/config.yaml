@@ -72,17 +72,14 @@ tiktok:
   ms_token: "pAvoM4_c0KMj4hKZnI54zBlFv9omNyfqKb3KIWDwebgECtqUUaS86579AsikXOLyR6mcr70gjqMvAB9DhOoclRcez59mdZl4D_PCOaro3IrAK5EDq6UzMs4I4bEq9O0Qk0xUT6OQLSv7IQ=="
   # TikTok users to monitor (medium-sized accounts that catch trends early)
   users:
-    - "joolieannie"          # "Very Demure" trend creator
     - "memegodfilms"         # Fast trend adoption
     - "_caileng"             # Fast trend adoption
     - "dailydoseofinternet.yt"
     - "pubity"               # Mass aggregator. Use as a "Mainstream/Saturation" indicator.
     - "daquan"               # Bridge between Black Twitter humor and TikTok.
-    - "dailydot"             # Rapid reporting on internet drama/memes.
+    - "news_eye"             # Rapid reporting on internet drama/memes.
     - "mashable"             # Tech/Culture news validation.
-    - "cocomocoe"            # Premier trend forecaster. Best source for naming new trends.
     - "knowyourmeme"         # Verification. Confirms "Established" status and history.
-    - "thealgorythm"         # Algorithmic culture analyst. Focuses on how the feed changes culture.
     - "noxaasht"             # 
   # Hashtags to monitor for memecoin potential
   hashtags:
@@ -170,8 +167,39 @@ noise:
     - "foryou"
     - "foryoupage"
     - "viral"
+    - "trending"
+    - "funny"
+    - "comedy"
+    - "meme"
+    - "memes"
+    - "explore"
+    - "duet"
+    - "stitch"
+    - "pov"
+    - "relatable"
+    - "xyzbca"
+    - "tiktok"
+    - "viralvideo"
+    # Account names we scrape (NOT trends!)
+    - "pubity"
+    - "daquan"
+    - "mashable"
+    - "dailydot"
+    - "knowyourmeme"
+    - "cocomocoe"
+    - "joolieannie"
+    - "memegodfilms"
+    - "thealgorythm"
+    - "noxaasht"
+    - "dailydoseofinternet"
+    # Branded hashtags from accounts
+    - "roadto19m"
+    - "roadto20m"
+    - "pubityfinds"
   # Minimum comment engagement to not be considered spam
   min_comment_engagement: 1
+  # Minimum unique users to consider a term a real trend (not one account spamming)
+  min_unique_users: 2
 
 # Notifications
 notifications:

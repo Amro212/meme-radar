@@ -446,3 +446,35 @@ class CommentPhrase(Base):
     def __repr__(self) -> str:
         return f"<CommentPhrase(phrase='{self.phrase[:30]}...', videos={self.video_count})>"
 
+
+class NotifiedItem(Base):
+    """
+    Track items that have been notified to prevent duplicate alerts.
+    
+    Persists across restarts for proper spam prevention.
+    """
+    
+    __tablename__ = "notified_items"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    
+    # What type of notification (trend, video, watchlist)
+    item_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    
+    # Unique identifier for the item (term:platform, video_url, username)
+    item_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    
+    # When it was notified
+    notified_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Cooldown period (minutes) before can notify again
+    cooldown_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    
+    __table_args__ = (
+        Index("ix_notified_items_key", "item_type", "item_key"),
+        Index("ix_notified_items_time", "notified_at"),
+        UniqueConstraint("item_type", "item_key", name="uq_notified_item"),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<NotifiedItem({self.item_type}: {self.item_key[:30]})>"

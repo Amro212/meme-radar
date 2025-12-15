@@ -106,7 +106,7 @@ class TikTokCollector(BaseCollector):
             "ms_tokens": ms_tokens,
             "num_sessions": 1,
             "sleep_after": 3,
-            "headless": False,
+            "headless": True,
             "browser": "chromium",
         }
         
