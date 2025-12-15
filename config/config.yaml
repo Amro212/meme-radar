@@ -13,6 +13,18 @@ scheduler:
   # Timezone for scheduling
   timezone: "UTC"
 
+# Telegram Notifications
+# To set up:
+# 1. Message @BotFather on Telegram, send /newbot
+# 2. Copy the API token you receive
+# 3. Start a chat with your bot and send any message
+# 4. Visit: https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
+# 5. Copy your chat_id from the response
+telegram:
+  enabled: true  # Set to true after adding token and chat_id
+  bot_token: "8351437975:AAHvH5ZzDmb7NUMbHuN2qDCQSkyJca6wqNY"   # Paste your bot token here
+  chat_id: "6968504950"     # Paste your chat ID here
+
 # Analysis Settings
 analysis:
   # Time window in minutes for bucketing data
@@ -47,27 +59,40 @@ twitter:
   max_tweets_per_query: 100
 
 # Platform: TikTok
-# Get ms_token from browser: Open TikTok > F12 > Application > Cookies > msToken
+# TikTok Configuration
+# 
+# SETUP: Export your TikTok cookies to tiktok_cookies.json in project root
+# 1. Install "EditThisCookie" browser extension
+# 2. Go to TikTok.com and log in
+# 3. Click the cookie icon > Export > Save as tiktok_cookies.json
+#
 tiktok:
   enabled: true
-  # Paste your ms_token here (get from browser cookies - expires frequently!)
+  # Fallback ms_token (used if cookies file not found)
   ms_token: "pAvoM4_c0KMj4hKZnI54zBlFv9omNyfqKb3KIWDwebgECtqUUaS86579AsikXOLyR6mcr70gjqMvAB9DhOoclRcez59mdZl4D_PCOaro3IrAK5EDq6UzMs4I4bEq9O0Qk0xUT6OQLSv7IQ=="
-  # Number of trending videos to fetch per run
-  trending_limit: 30
   # TikTok users to monitor (medium-sized accounts that catch trends early)
   users:
-    - "girl_on_couch"        # Originated "Man in Finance" trend
-    - "joolieannie"          # "Very Demure" trend creator
-    - "kelleyheyer"          # Apple Dance creator
-    - "memegod"              # Fast trend adoption
+    - "memegodfilms"         # Fast trend adoption
+    - "_caileng"             # Fast trend adoption
+    - "dailydoseofinternet.yt"
+    - "pubity"               # Mass aggregator. Use as a "Mainstream/Saturation" indicator.
+    - "daquan"               # Bridge between Black Twitter humor and TikTok.
+    - "news_eye"             # Rapid reporting on internet drama/memes.
+    - "mashable"             # Tech/Culture news validation.
+    - "knowyourmeme"         # Verification. Confirms "Established" status and history.
+    - "noxaasht"             # 
   # Hashtags to monitor for memecoin potential
   hashtags:
-    - "brainrot"             # Viral nonsense (memecoin material)
-    - "meme"
-    - "viral"
-    - "fyp"
+    # - "brainrot"
+    # - "meme"
+    # - "viral"
+    # - "trending"
+    # - "comedy"
+    # - "funny"
   # Max posts per user/hashtag
   max_posts_per_source: 20
+  # Filter out videos older than this (days) - helps skip pinned/old viral videos
+  max_video_age_days: 7
 
 # Platform: Instagram
 instagram:
@@ -142,8 +167,39 @@ noise:
     - "foryou"
     - "foryoupage"
     - "viral"
+    - "trending"
+    - "funny"
+    - "comedy"
+    - "meme"
+    - "memes"
+    - "explore"
+    - "duet"
+    - "stitch"
+    - "pov"
+    - "relatable"
+    - "xyzbca"
+    - "tiktok"
+    - "viralvideo"
+    # Account names we scrape (NOT trends!)
+    - "pubity"
+    - "daquan"
+    - "mashable"
+    - "dailydot"
+    - "knowyourmeme"
+    - "cocomocoe"
+    - "joolieannie"
+    - "memegodfilms"
+    - "thealgorythm"
+    - "noxaasht"
+    - "dailydoseofinternet"
+    # Branded hashtags from accounts
+    - "roadto19m"
+    - "roadto20m"
+    - "pubityfinds"
   # Minimum comment engagement to not be considered spam
   min_comment_engagement: 1
+  # Minimum unique users to consider a term a real trend (not one account spamming)
+  min_unique_users: 2
 
 # Notifications
 notifications:
@@ -165,3 +221,43 @@ notifications:
     - "test"
     - "example"
 
+# Lowkey Creator Detection
+# Detect small/mid-size creators with viral outlier videos
+lowkey_detection:
+  enabled: true
+  
+  # Creator selection thresholds
+  min_followers: 5000
+  max_followers: 1000000
+  min_views: 250000
+  min_likes: 100000  # Primary metric since TikTok API doesn't return views
+  
+  # Metric thresholds (all must be met)
+  min_virality_ratio: 10.0      # views / followers
+  min_engagement_rate: 0.08     # (likes+comments+shares) / views
+  min_comment_intensity: 0.02   # comments / views
+  min_spike_factor: 3.0         # views / avg_views
+  
+  # Rolling stats window
+  history_video_count: 10
+  
+  # Watchlist settings
+  watchlist_drop_days: 30
+  
+  # Comment analysis
+  comments_per_video: 50
+  
+  # Processing limits (per run)
+  max_creators_per_run: 100
+  max_videos_per_run: 500
+  
+  # Analysis window
+  analysis_window_hours: 48
+  
+  # Meme-seed score weights (should sum to 1.0)
+  score_weights:
+    virality_ratio: 0.25
+    engagement_rate: 0.20
+    comment_intensity: 0.20
+    spike_factor: 0.20
+    repeated_phrases: 0.15

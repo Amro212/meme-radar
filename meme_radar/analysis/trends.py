@@ -408,6 +408,15 @@ class TrendAnalyzer:
     
     def _is_trending(self, metrics: TrendMetrics) -> bool:
         """Determine if metrics indicate a trending term."""
+        # Get minimum unique users from config (default 2)
+        from .config import Config
+        config = Config()
+        min_unique_users = config.get("noise", "min_unique_users", default=2)
+        
+        # Must have multiple unique users (not just one account spamming)
+        if metrics.distinct_authors < min_unique_users:
+            return False
+        
         return (
             metrics.current_frequency >= self.min_frequency and
             (metrics.z_score >= self.z_score_threshold or

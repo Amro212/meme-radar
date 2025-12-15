@@ -308,18 +308,34 @@ class MemeRadarOrchestrator:
             results['cross_platform'] = cross_analyzer.analyze(since_hours=2.0)
             logger.info(f"Found {len(results['cross_platform'])} cross-platform trends")
             
+            # Lowkey creator detection
+            if self.config.get("lowkey_detection", "enabled", default=False):
+                logger.info("Running lowkey creator detection...")
+                try:
+                    from .analysis.lowkey_detector import LowkeyAnalyzer
+                    lowkey_analyzer = LowkeyAnalyzer(session)
+                    lowkey_results = lowkey_analyzer.run_full_analysis()
+                    results['lowkey'] = lowkey_results
+                    logger.info(
+                        f"Lowkey detection: {lowkey_results.get('hot_videos_found', 0)} hot videos, "
+                        f"{lowkey_results.get('watchlist_additions', 0)} watchlist additions"
+                    )
+                except Exception as e:
+                    logger.error(f"Lowkey detection error: {e}")
+                    results['lowkey'] = {'error': str(e)}
+            
             # Send notifications for high-value trends
             self._notify_trends(session)
         
         return results
     
     def _notify_trends(self, session) -> None:
-        """Send notifications for detected high-value trends."""
+        """Send Telegram notifications for detected trends and hot videos."""
         try:
-            from .notifier import TrendNotifier
-            from .models import TrendCandidate
+            from .telegram_notifier import TelegramNotifier
+            from .models import TrendCandidate, HotVideo
             
-            notifier = TrendNotifier(self.config)
+            notifier = TelegramNotifier(self.config)
             
             if not notifier.is_available():
                 return
@@ -328,28 +344,62 @@ class MemeRadarOrchestrator:
             from datetime import timedelta
             cutoff_time = datetime.utcnow() - timedelta(minutes=30)
             
+            # Notify on trends (only high acceleration to avoid noise)
             trends = (
                 session.query(TrendCandidate)
                 .filter(TrendCandidate.detected_at >= cutoff_time)
+                .filter(TrendCandidate.acceleration_score >= 2.0)  # Only meaningful acceleration
                 .order_by(TrendCandidate.trend_score.desc())
-                .limit(10)
+                .limit(5)
                 .all()
             )
             
             for trend in trends:
-                # Get example URL from trend
                 example_url = None
                 if trend.example_refs:
                     example_url = trend.example_refs[0] if isinstance(trend.example_refs, list) else None
                 
-                # Try to notify
                 notifier.notify_trend(
                     term=trend.term,
                     acceleration=trend.acceleration_score,
-                    frequency=trend.frequency,
+                    frequency=trend.current_frequency,
                     platform=trend.platform.name if trend.platform else "unknown",
                     zscore=trend.z_score,
                     example_url=example_url,
+                )
+            
+            # Notify on hot videos (high score only)
+            hot_videos = (
+                session.query(HotVideo)
+                .filter(HotVideo.detected_at >= cutoff_time)
+                .filter(HotVideo.meme_seed_score >= 0.4)  # Threshold for notification
+                .order_by(HotVideo.meme_seed_score.desc())
+                .limit(5)
+                .all()
+            )
+            
+            for video in hot_videos:
+                # Get post data for caption and hashtags
+                post = video.post
+                caption = post.text if post else None
+                hashtags = []
+                if post and post.hashtags:
+                    hashtags = [h.tag for h in post.hashtags[:5]]
+                
+                notifier.notify_hot_video(
+                    username=video.creator.username if video.creator else "unknown",
+                    likes=video.likes,
+                    shares=video.shares,
+                    comments=video.comments,
+                    views=video.views,
+                    spike_factor=video.spike_factor,
+                    meme_score=video.meme_seed_score,
+                    video_url=video.tiktok_url,
+                    caption=caption,
+                    hashtags=hashtags,
+                    is_discourse=video.is_discourse_signal,
+                    likes_to_views=video.likes_to_views_ratio,
+                    shares_to_likes=video.shares_to_likes_ratio,
                 )
                 
         except Exception as e:
@@ -416,6 +466,15 @@ class Scheduler:
         )
         
         logger.info(f"Starting scheduler with {interval_minutes} minute interval")
+        
+        # Send Telegram startup notification
+        try:
+            from .telegram_notifier import TelegramNotifier
+            notifier = TelegramNotifier(self.config)
+            if notifier.is_available():
+                notifier.send_startup_message()
+        except Exception as e:
+            logger.warning(f"Could not send startup notification: {e}")
         
         # Run immediately on start
         self._run_cycle()

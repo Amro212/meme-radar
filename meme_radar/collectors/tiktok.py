@@ -1,24 +1,32 @@
 """
 TikTok collector using TikTokApi.
 
-Fetches trending videos and their comments to detect emerging memes.
+Uses browser cookies for authentication to bypass bot detection.
 """
 
+import asyncio
+import json
+import logging
+import os
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Dict
 
 from .base import BaseCollector, CollectionResult, CommentEvent, PostEvent
+
+# Suppress noisy TikTokApi errors
+logging.getLogger("TikTokApi.tiktok").setLevel(logging.CRITICAL)
 
 
 class TikTokCollector(BaseCollector):
     """
     Collector for TikTok using TikTokApi.
     
-    Fetches trending videos and their top comments.
-    Note: TikTokApi requires playwright for browser automation.
+    Uses exported browser cookies for reliable scraping.
     """
     
     PLATFORM_NAME = "tiktok"
+    COOKIES_FILE = "tiktok_cookies.json"
     
     def __init__(self):
         super().__init__()
@@ -35,254 +43,288 @@ class TikTokCollector(BaseCollector):
                 self._api_available = False
         return self._api_available
     
-    async def _init_api(self):
-        """Initialize the TikTokApi."""
-        if self._api is None:
-            from TikTokApi import TikTokApi
-            self._api = TikTokApi()
+    def _get_cookies_path(self) -> Path:
+        """Get path to cookies file."""
+        # Look in project root
+        return Path(__file__).parent.parent.parent / self.COOKIES_FILE
+    
+    def _load_cookies(self) -> Optional[Dict]:
+        """
+        Load cookies from JSON file.
+        
+        Expected format (from browser extension like EditThisCookie):
+        [
+            {"name": "sessionid", "value": "...", "domain": ".tiktok.com", ...},
+            {"name": "msToken", "value": "...", "domain": ".tiktok.com", ...},
+            ...
+        ]
+        """
+        path = self._get_cookies_path()
+        if not path.exists():
+            return None
+        
+        try:
+            with open(path, 'r') as f:
+                cookies = json.load(f)
             
-            # Get ms_token from config (helps bypass 10201 error)
-            ms_token = self.config.get("tiktok", "ms_token")
-            ms_tokens = [ms_token] if ms_token else []
+            # Convert to dict format TikTokApi expects
+            cookie_dict = {}
+            ms_token = None
             
-            if ms_tokens:
-                print(f"[TikTok] Using ms_token from config")
-            else:
-                print("[TikTok] No ms_token provided - may encounter 10201 error")
+            for cookie in cookies:
+                name = cookie.get('name', '')
+                value = cookie.get('value', '')
+                if name and value:
+                    cookie_dict[name] = value
+                    if name == 'msToken':
+                        ms_token = value
             
-            # Retry session creation up to 3 times
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    await self._api.create_sessions(
-                        ms_tokens=ms_tokens,
-                        num_sessions=1,
-                        sleep_after=5,
-                        headless=False,
-                    )
-                    break  # Success
-                except Exception as e:
-                    print(f"[TikTok] Session creation failed (attempt {attempt+1}/{max_retries}): {e}")
-                    if attempt == max_retries - 1:
-                        raise e
-                    import asyncio
-                    await asyncio.sleep(5)  # Wait before retry
+            print(f"[TikTok] Loaded {len(cookie_dict)} cookies from {self.COOKIES_FILE}")
+            if ms_token:
+                print(f"[TikTok] Found msToken: {ms_token[:30]}...")
+            
+            return {
+                'cookies': cookie_dict,
+                'ms_token': ms_token
+            }
+            
+        except Exception as e:
+            print(f"[TikTok] Failed to load cookies: {e}")
+            return None
+    
+    async def _init_api(self, ms_token: Optional[str] = None, cookies: Optional[Dict] = None):
+        """Initialize the TikTokApi with ms_token."""
+        from TikTokApi import TikTokApi
+        
+        self._api = TikTokApi()
+        
+        # Use ms_token (either from cookies or config)
+        ms_tokens = [ms_token] if ms_token else []
+        
+        # Simple session config
+        session_config = {
+            "ms_tokens": ms_tokens,
+            "num_sessions": 1,
+            "sleep_after": 3,
+            "headless": True,
+            "browser": "chromium",
+        }
+        
+        # Create session
+        await self._api.create_sessions(**session_config)
+        print("[TikTok] Session created")
+        
         return self._api
     
     def collect(self) -> CollectionResult:
-        """
-        Collect trending TikTok videos.
-        
-        Uses asyncio to run the async collection.
-        """
+        """Collect TikTok videos from users and hashtags."""
         import asyncio
+        import sys
         
         result = CollectionResult(platform=self.PLATFORM_NAME)
         
         if not self.config.get("tiktok", "enabled", default=True):
-            result.errors.append("TikTok collector is disabled in config")
+            result.errors.append("TikTok collector is disabled")
             return result
         
         if not self.is_available():
-            result.errors.append(
-                "TikTokApi not installed. Install with: pip install TikTokApi playwright && playwright install"
-            )
+            result.errors.append("TikTokApi not installed")
             return result
         
+        # Try to load cookies first
+        cookie_data = self._load_cookies()
+        cookies = cookie_data['cookies'] if cookie_data else None
+        ms_token = cookie_data['ms_token'] if cookie_data else None
+        
+        # Fall back to config ms_token
+        if not ms_token:
+            ms_token = self.config.get("tiktok", "ms_token")
+            if ms_token:
+                print(f"[TikTok] Using config ms_token: {ms_token[:30]}...")
+        
+        if not cookie_data and not ms_token:
+            print("[TikTok] WARNING: No cookies or ms_token found!")
+            print(f"[TikTok] Export your TikTok cookies to: {self._get_cookies_path()}")
+        
+        # Reset API
+        self._api = None
+        
         try:
-            # Fix for Windows asyncio event loop issue with Playwright
-            import sys
-            import asyncio
             if sys.platform == 'win32':
                 asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
-            # Run async collection
+            
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(self._collect_async(result))
+                loop.run_until_complete(self._collect_async(result, ms_token, cookies))
             finally:
                 loop.close()
         except Exception as e:
-            result.errors.append(f"TikTok collection error: {str(e)}")
+            result.errors.append(f"Collection error: {str(e)}")
         
         result.completed_at = datetime.utcnow()
         return result
     
-    async def _collect_async(self, result: CollectionResult) -> None:
-        """Async collection from trending, users, and hashtags."""
-        from TikTokApi import TikTokApi
-        
-        trending_limit = self.config.get("tiktok", "trending_limit", default=30)
+    async def _collect_async(self, result: CollectionResult, ms_token: Optional[str], cookies: Optional[Dict]) -> None:
+        """Async collection from users and hashtags."""
         users = self.config.get("tiktok", "users", default=[])
         hashtags = self.config.get("tiktok", "hashtags", default=[])
         max_per_source = self.config.get("tiktok", "max_posts_per_source", default=20)
+        max_age_days = self.config.get("tiktok", "max_video_age_days", default=7)
+        
+        # Calculate cutoff date for filtering old/pinned videos
+        from datetime import timedelta
+        cutoff_date = datetime.utcnow() - timedelta(days=max_age_days)
         
         try:
-            api = await self._init_api()
+            api = await self._init_api(ms_token, cookies)
             
-            # 1. Collect from trending (viral content)
-            print(f"[TikTok] Collecting {trending_limit} trending videos...")
-            async for video in api.trending.videos(count=trending_limit):
+            # Collect from users
+            for idx, username in enumerate(users):
                 try:
-                    post = await self._process_video(video)
-                    result.posts.append(post)
-                except Exception as e:
-                    result.errors.append(f"Error processing trending video: {str(e)}")
-            
-            # 2. Collect from specific users (early trend adopters)
-            for username in users:
-                try:
-                    print(f"[TikTok] Collecting from @{username}...")
+                    # Add delay between accounts to avoid rate limiting (except first)
+                    if idx > 0:
+                        await asyncio.sleep(2)
+                    
+                    print(f"[TikTok] @{username}...")
                     user = api.user(username)
                     count = 0
-                    async for video in user.videos(count=max_per_source):
-                        if count >= max_per_source:
-                            break
-                        try:
-                            post = await self._process_video(video)
-                            result.posts.append(post)
-                            count += 1
-                        except Exception as e:
-                            result.errors.append(f"Error processing @{username} video: {str(e)}")
+                    skipped = 0
+                    
+                    # Add timeout for user video iteration
+                    try:
+                        async for video in user.videos(count=max_per_source + 10):
+                            if count >= max_per_source:
+                                break
+                            try:
+                                post = await self._process_video(video)
+                                # Skip old/pinned videos
+                                if post.created_at and post.created_at < cutoff_date:
+                                    skipped += 1
+                                    continue
+                                result.posts.append(post)
+                                count += 1
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        # If iteration fails, might be temporary block
+                        if count == 0:
+                            print(f"[TikTok] @{username}: failed to fetch ({str(e)[:40]})")
+                            result.errors.append(f"@{username}: fetch failed")
+                            continue
+                    
+                    if count > 0:
+                        msg = f"[TikTok] @{username}: {count} videos ✓"
+                        if skipped > 0:
+                            msg += f" (skipped {skipped} old)"
+                        print(msg)
+                    else:
+                        print(f"[TikTok] @{username}: no videos")
+                        result.errors.append(f"@{username}: no videos")
                 except Exception as e:
-                    result.errors.append(f"Error collecting from @{username}: {str(e)}")
+                    error = str(e)[:60]
+                    print(f"[TikTok] @{username}: {error}")
+                    result.errors.append(f"@{username}: {error}")
             
-            # 3. Collect from hashtags (topic-specific trends)
+            # Collect from hashtags
             for hashtag in hashtags:
                 try:
-                    print(f"[TikTok] Collecting from #{hashtag}...")
+                    print(f"[TikTok] #{hashtag}...")
                     tag = api.hashtag(name=hashtag)
                     count = 0
-                    async for video in tag.videos(count=max_per_source):
+                    skipped = 0
+                    async for video in tag.videos(count=max_per_source + 10):
                         if count >= max_per_source:
                             break
                         try:
                             post = await self._process_video(video)
+                            # Skip old videos
+                            if post.created_at and post.created_at < cutoff_date:
+                                skipped += 1
+                                continue
                             result.posts.append(post)
                             count += 1
-                        except Exception as e:
-                            result.errors.append(f"Error processing #{hashtag} video: {str(e)}")
+                        except Exception:
+                            pass
+                    if count > 0:
+                        msg = f"[TikTok] #{hashtag}: {count} videos ✓"
+                        if skipped > 0:
+                            msg += f" (skipped {skipped} old)"
+                        print(msg)
+                    else:
+                        print(f"[TikTok] #{hashtag}: no videos")
+                        result.errors.append(f"#{hashtag}: no videos")
                 except Exception as e:
-                    result.errors.append(f"Error collecting from #{hashtag}: {str(e)}")
+                    error = str(e)[:60]
+                    print(f"[TikTok] #{hashtag}: {error}")
+                    result.errors.append(f"#{hashtag}: {error}")
                     
         except Exception as e:
-            result.errors.append(f"TikTok API error: {str(e)}")
+            result.errors.append(f"API error: {str(e)}")
         finally:
             if self._api:
                 await self._api.close_sessions()
                 self._api = None
     
     async def _process_video(self, video) -> PostEvent:
-        """Convert a TikTok video object to PostEvent."""
-        video_info = video.as_dict
+        """Convert a TikTok video to PostEvent."""
+        info = video.as_dict
         
-        # Extract caption/description
-        caption = video_info.get('desc', '') or ''
-        
-        # Extract hashtags from challenges
+        caption = info.get('desc', '') or ''
         hashtags = self.extract_hashtags(caption)
-        if 'challenges' in video_info:
-            for challenge in video_info['challenges']:
-                if 'title' in challenge:
-                    hashtags.append(challenge['title'].lower())
         
-        # Author info
-        author_info = video_info.get('author', {})
+        for challenge in info.get('challenges', []):
+            if 'title' in challenge:
+                hashtags.append(challenge['title'].lower())
+        
+        author_info = info.get('author', {})
         author = author_info.get('uniqueId') or author_info.get('nickname', '')
         
-        # Stats
-        stats = video_info.get('stats', {})
+        stats = info.get('stats', {})
         likes = stats.get('diggCount', 0) or stats.get('heartCount', 0) or 0
         shares = stats.get('shareCount', 0) or 0
-        comments_count = stats.get('commentCount', 0) or 0
+        comments = stats.get('commentCount', 0) or 0
         plays = stats.get('playCount', 0) or 0
         
-        # Video URL
-        video_id = video_info.get('id', '')
+        video_id = info.get('id', '')
         permalink = f"https://www.tiktok.com/@{author}/video/{video_id}" if author else None
         
-        # Media URL (cover image)
         media_urls = []
-        if 'video' in video_info and 'cover' in video_info['video']:
-            media_urls.append((video_info['video']['cover'], 'video'))
+        if 'video' in info and 'cover' in info['video']:
+            media_urls.append((info['video']['cover'], 'video'))
         
         post = PostEvent(
             platform=self.PLATFORM_NAME,
             platform_post_id=video_id,
             author=author,
-            created_at=datetime.utcfromtimestamp(video_info.get('createTime', 0)) if video_info.get('createTime') else None,
+            created_at=datetime.utcfromtimestamp(info.get('createTime', 0)) if info.get('createTime') else None,
             text=caption,
             permalink=permalink,
             likes=likes,
             shares=shares,
-            comments_count=comments_count,
+            comments_count=comments,
             hashtags=list(set(hashtags)),
             media_urls=media_urls,
             raw_metadata={
                 "play_count": plays,
-                "music_title": video_info.get('music', {}).get('title'),
-                "music_author": video_info.get('music', {}).get('authorName'),
+                "music_title": info.get('music', {}).get('title'),
+                "music_author": info.get('music', {}).get('authorName'),
             }
         )
         
         post.engagement_score = self.calculate_engagement_score(
-            likes=likes,
-            shares=shares,
-            comments=comments_count,
-            views=plays,
+            likes=likes, shares=shares, comments=comments, views=plays
         )
         
         return post
-    
-    async def _collect_comments(
-        self,
-        video,
-        video_id: str,
-        limit: int,
-        result: CollectionResult,
-    ) -> None:
-        """Collect top comments from a video."""
-        try:
-            count = 0
-            async for comment in video.comments(count=limit):
-                if count >= limit:
-                    break
-                
-                comment_info = comment.as_dict
-                
-                comment_event = CommentEvent(
-                    platform_comment_id=comment_info.get('cid', ''),
-                    author=comment_info.get('user', {}).get('unique_id', ''),
-                    created_at=datetime.utcfromtimestamp(comment_info.get('create_time', 0)) if comment_info.get('create_time') else None,
-                    text=comment_info.get('text', ''),
-                    normalized_text=self.normalize_comment_text(comment_info.get('text', '')),
-                    score=comment_info.get('digg_count', 0) or 0,
-                )
-                
-                result.comments.append((video_id, comment_event))
-                count += 1
-                
-        except Exception as e:
-            # Don't fail the whole collection for comment errors
-            pass
 
 
-# Allow standalone testing
 if __name__ == "__main__":
     collector = TikTokCollector()
     
     if not collector.is_available():
-        print("TikTok collector not available. Install: pip install TikTokApi playwright && playwright install")
+        print("TikTokApi not installed")
     else:
-        print("Collecting from TikTok...")
+        print("Collecting...")
         result = collector.collect()
-        print(f"Collected {len(result.posts)} videos and {len(result.comments)} comments")
-        
-        if result.errors:
-            print(f"Errors: {result.errors}")
-        
-        for post in result.posts[:3]:
-            print(f"\n@{post.author}: {post.text[:80]}...")
-            print(f"  Likes: {post.likes}, Shares: {post.shares}")
-            print(f"  Hashtags: {post.hashtags}")
+        print(f"\nGot {len(result.posts)} videos, {len(result.errors)} errors")
