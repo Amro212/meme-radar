@@ -80,7 +80,10 @@ tiktok:
     - "news_eye"             # Rapid reporting on internet drama/memes.
     - "mashable"             # Tech/Culture news validation.
     - "knowyourmeme"         # Verification. Confirms "Established" status and history.
-    - "noxaasht"             # 
+    - "thesun"               # 
+    - "noxaasht"             #
+    - "rap"                  # 
+    - "watcherguru"          # 
   # Hashtags to monitor for memecoin potential
   hashtags:
     # - "brainrot"

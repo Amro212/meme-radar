@@ -131,16 +131,32 @@ class TikTokCollector(BaseCollector):
             result.errors.append("TikTokApi not installed")
             return result
         
-        # Try to load cookies first
-        cookie_data = self._load_cookies()
-        cookies = cookie_data['cookies'] if cookie_data else None
-        ms_token = cookie_data['ms_token'] if cookie_data else None
+        # 1. Try to refresh token if needed (using new TokenManager)
+        # from ..token_manager import get_token_manager
+        # tm = get_token_manager()
+        # This will use cached token, or refresh if expired (1 hour)
+        # fresh_token = tm.get_token_sync()
+        fresh_token = None
         
-        # Fall back to config ms_token
-        if not ms_token:
+        # 2. Try to load cookies from file
+        cookie_data = self._load_cookies()
+        
+        # 3. Determine best ms_token to use
+        ms_token = None
+        
+        # Priority: Freshly refreshed > File cookies > Config
+        if fresh_token:
+            ms_token = fresh_token
+            print(f"[TikTok] Using auto-refreshed msToken")
+        elif cookie_data and cookie_data.get('ms_token'):
+            ms_token = cookie_data['ms_token']
+        else:
             ms_token = self.config.get("tiktok", "ms_token")
-            if ms_token:
-                print(f"[TikTok] Using config ms_token: {ms_token[:30]}...")
+            
+        cookies = cookie_data['cookies'] if cookie_data else None
+        
+        if ms_token:
+            print(f"[TikTok] Found msToken: {ms_token[:30]}...")
         
         if not cookie_data and not ms_token:
             print("[TikTok] WARNING: No cookies or ms_token found!")

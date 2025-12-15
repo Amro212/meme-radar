@@ -139,22 +139,35 @@ class TelegramNotifier:
         if self._was_recently_notified("video", item_key, cooldown_minutes=60):
             return False
         
-        # Determine alert type
+        # 1. Identify all detection signals
+        signals = []
+        
+        # Share Ratio (The "Dark Social" Indicator)
+        if shares_to_likes >= 0.1:
+            intensity = "EXTREME" if shares_to_likes >= 0.3 else "HIGH"
+            signals.append(f"🔄 <b>Dark Social ({intensity}):</b> {shares_to_likes:.1%} share ratio indicates viral spread via DMs.")
+            
+        # Discourse (The "Controversy" Indicator)
         if is_discourse:
-            header = "💬 DISCOURSE MEME DETECTED"
-            signal_desc = "High comments + low L/V ratio = viral debate potential"
-        elif spike_factor >= 20:
-            header = "🚀 MEGA VIRAL SPIKE"
-            signal_desc = f"{spike_factor:.0f}x above creator average"
-        elif shares_to_likes >= 0.3:
-            header = "📤 HIGH SHARE RATIO"
-            signal_desc = "Strong dark social spreading signal"
-        elif meme_score >= 0.7:
-            header = "🔥 HOT MEME SEED"
-            signal_desc = f"Meme potential score: {meme_score:.0%}"
+            signals.append("💬 <b>Controversy Signal:</b> High comment count relative to views/likes indicates debate or confusion.")
+            
+        # Spike Factor (The "Outlier" Indicator)
+        if spike_factor >= 3.0:
+            signals.append(f"🚀 <b>Statistical Outlier:</b> Performing {spike_factor:.1f}x better than this creator's average.")
+            
+        # Meme Score (Overall Quality)
+        if meme_score >= 0.7:
+             signals.append(f"🔥 <b>High Potential:</b> Overall meme-seed score of {meme_score:.0%} is exceptional.")
+
+        # Determine main header based on strongest signal
+        if meme_score >= 0.8:
+            header = "🔥 DIAMOND MEME SEED"
+        elif is_discourse:
+            header = "💬 DISCOURSE/DRAMA DETECTED"
+        elif shares_to_likes >= 0.2:
+            header = "� VIRAL SHARE SPIKE"
         else:
-            header = "📈 TRENDING VIDEO"
-            signal_desc = f"Spike: {spike_factor:.1f}x average"
+            header = "🚀 RISING HIT DETECTED"
         
         # Format numbers
         likes_str = self._format_number(likes)
@@ -162,36 +175,36 @@ class TelegramNotifier:
         comments_str = self._format_number(comments)
         views_str = self._format_number(views) if views > 0 else "N/A"
         
+        # Build Message
         message = f"""
 <b>━━━ {header} ━━━</b>
 
 👤 <b>Creator:</b> @{username}
-📊 <b>Signal:</b> {signal_desc}
+🏆 <b>Score:</b> <code>{meme_score:.0%}</code>
 
-<b>┌ ENGAGEMENT</b>
-│ ❤️ Likes: <code>{likes_str}</code>
-│ 🔄 Shares: <code>{shares_str}</code>
+<b>🔍 DETECTION CONTEXT</b>
+"""
+        # Add bullet points for signals
+        for sig in signals:
+            message += f"• {sig}\n"
+            
+        message += f"""
+<b>📊 METRICS</b>
+┌ ❤️ Likes: <code>{likes_str}</code>
+│ 🔄 Shares: <code>{shares_str}</code> (S/L: {shares_to_likes:.1%})
 │ 💬 Comments: <code>{comments_str}</code>
-│ 👁 Views: <code>{views_str}</code>
-<b>└</b>
-
-<b>🎯 Meme Score:</b> <code>{meme_score:.0%}</code>
+└ 👁 Views: <code>{views_str}</code>
 """
         
         # Add caption preview
         if caption:
-            preview = caption[:100] + "..." if len(caption) > 100 else caption
+            # Clean up caption (remove excessive newlines)
+            clean_caption = caption.replace('\n', ' ').strip()
+            preview = clean_caption[:100] + "..." if len(clean_caption) > 100 else clean_caption
             message += f"\n<b>📝 Caption:</b>\n<i>{preview}</i>\n"
         
-        # Filter out noise hashtags
-        if hashtags:
-            clean_tags = [h for h in hashtags[:5] if not self._is_noise_term(h)]
-            if clean_tags:
-                tags = " ".join([f"#{h}" for h in clean_tags])
-                message += f"\n<b>🏷 Tags:</b> {tags}\n"
-        
         if video_url:
-            message += f"\n🔗 <a href=\"{video_url}\">WATCH NOW</a>"
+            message += f"\n🔗 <a href=\"{video_url}\">WATCH ON TIKTOK</a>"
         
         now = datetime.now().strftime("%H:%M EST")
         message += f"\n\n<i>Detected at {now}</i>"
@@ -226,39 +239,47 @@ class TelegramNotifier:
         if self._was_recently_notified("trend", item_key, cooldown_minutes=120):
             return False
         
-        # Determine urgency
+        # Determine urgency and header
         if acceleration >= 10:
             emoji = "🚨"
-            urgency = "EXPLOSIVE"
+            urgency = "EXPLOSIVE TREND"
         elif acceleration >= 5:
             emoji = "🔥"
-            urgency = "HOT"
+            urgency = "HOT TREND"
         elif zscore >= 3:
             emoji = "📈"
-            urgency = "RISING"
+            urgency = "RISING TOPIC"
         else:
             emoji = "👀"
-            urgency = "EMERGING"
+            urgency = "EMERGING SIGNAL"
+            
+        # Build Context String
+        growth_ctx = ""
+        if acceleration >= 2:
+            growth_ctx = f"Usage spiked <b>{acceleration:.1f}x</b> above baseline."
+            
+        spread_ctx = ""
+        if unique_users > 1:
+            spread_ctx = f"Discussed by <b>{unique_users}</b> unique accounts."
         
         message = f"""
-<b>━━━ {emoji} {urgency} TREND ━━━</b>
+<b>━━━ {emoji} {urgency} ━━━</b>
 
-<b>🏷 Term:</b> <code>{term}</code>
-<b>📱 Platform:</b> {platform.upper()}
+🏷 <b>Term:</b> <code>{term}</code>
+📱 <b>Platform:</b> {platform.upper()}
 
-<b>┌ METRICS</b>
-│ ⚡ Acceleration: <code>{acceleration:.1f}x</code>
-│ 📊 Frequency: <code>{frequency}</code>
+<b>🔍 CONTEXT</b>
+• {growth_ctx}
+• {spread_ctx}
+
+<b>📊 STATS</b>
+┌ ⚡ Acceleration: <code>{acceleration:.1f}x</code>
 │ 📈 Z-Score: <code>{zscore:.2f}</code>
+└ 🔢 Post Count: <code>{frequency}</code>
 """
         
-        if unique_users > 0:
-            message += f"│ 👥 Unique Users: <code>{unique_users}</code>\n"
-        
-        message += "<b>└</b>"
-        
         if example_url:
-            message += f"\n\n🔗 <a href=\"{example_url}\">View Example</a>"
+            message += f"\n🔗 <a href=\"{example_url}\">View Example</a>"
         
         now = datetime.now().strftime("%H:%M EST")
         message += f"\n\n<i>Detected at {now}</i>"

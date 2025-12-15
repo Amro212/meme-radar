@@ -409,7 +409,7 @@ class TrendAnalyzer:
     def _is_trending(self, metrics: TrendMetrics) -> bool:
         """Determine if metrics indicate a trending term."""
         # Get minimum unique users from config (default 2)
-        from .config import Config
+        from ..config import Config
         config = Config()
         min_unique_users = config.get("noise", "min_unique_users", default=2)
         
