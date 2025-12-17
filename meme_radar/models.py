@@ -235,6 +235,9 @@ class TrendCandidate(Base):
     cross_platform: Mapped[bool] = mapped_column(Boolean, default=False)
     platforms_seen: Mapped[Optional[str]] = mapped_column(String(255))  # comma-separated
     
+    # Validation metrics
+    distinct_authors: Mapped[int] = mapped_column(Integer, default=0)
+    
     # Composite score for ranking
     trend_score: Mapped[float] = mapped_column(Float, default=0.0)
     

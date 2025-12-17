@@ -225,7 +225,7 @@ class TelegramNotifier:
         frequency: int,
         platform: str,
         zscore: float = 0.0,
-        example_url: Optional[str] = None,
+        example_urls: Optional[List[str]] = None,
         unique_users: int = 0,
     ) -> bool:
         """Send a trend detection alert."""
@@ -239,50 +239,58 @@ class TelegramNotifier:
         if self._was_recently_notified("trend", item_key, cooldown_minutes=120):
             return False
         
-        # Determine urgency and header
+        # Determine urgency
         if acceleration >= 10:
             emoji = "🚨"
-            urgency = "EXPLOSIVE TREND"
+            urgency = "EXPLOSIVE"
         elif acceleration >= 5:
             emoji = "🔥"
-            urgency = "HOT TREND"
+            urgency = "HOT"
         elif zscore >= 3:
             emoji = "📈"
-            urgency = "RISING TOPIC"
+            urgency = "RISING"
         else:
             emoji = "👀"
-            urgency = "EMERGING SIGNAL"
-            
-        # Build Context String
-        growth_ctx = ""
+            urgency = "EMERGING"
+        
+        # Build Context items dynamically (prevents empty bullets)
+        context_items = []
         if acceleration >= 2:
-            growth_ctx = f"Usage spiked <b>{acceleration:.1f}x</b> above baseline."
-            
-        spread_ctx = ""
+            context_items.append(f"Usage spiked <b>{acceleration:.1f}x</b> above baseline.")
+        
         if unique_users > 1:
-            spread_ctx = f"Discussed by <b>{unique_users}</b> unique accounts."
-        
+            context_items.append(f"Discussed by <b>{unique_users}</b> unique accounts.")
+        elif unique_users == 1:
+             context_items.append("Driven by a single active account (check for spam).")
+            
         message = f"""
-<b>━━━ {emoji} {urgency} ━━━</b>
+<b>━━━ {emoji} {urgency} TREND ━━━</b>
 
-🏷 <b>Term:</b> <code>{term}</code>
-📱 <b>Platform:</b> {platform.upper()}
+<b>🏷 Term:</b> <code>{term}</code>
+<b>📱 Platform:</b> {platform.upper()}
 
-<b>🔍 CONTEXT</b>
-• {growth_ctx}
-• {spread_ctx}
-
-<b>📊 STATS</b>
-┌ ⚡ Acceleration: <code>{acceleration:.1f}x</code>
+<b>┌ STATS</b>
+│ ⚡ Acceleration: <code>{acceleration:.1f}x</code>
 │ 📈 Z-Score: <code>{zscore:.2f}</code>
-└ 🔢 Post Count: <code>{frequency}</code>
+│ 🔢 Post Count: <code>{frequency}</code>
+<b>└</b>
 """
+
+        # Add Context Section
+        if context_items:
+            message += "\n<b>🔍 CONTEXT</b>\n"
+            for item in context_items:
+                message += f"• {item}\n"
         
-        if example_url:
-            message += f"\n🔗 <a href=\"{example_url}\">View Example</a>"
+        # Add Examples Section
+        if example_urls and len(example_urls) > 0:
+            message += "\n<b>🔗 EXAMPLES</b>\n"
+            # Show up to 3 links
+            for i, url in enumerate(example_urls[:3], 1):
+                message += f"• <a href=\"{url}\">Post {i}</a>\n"
         
         now = datetime.now().strftime("%H:%M EST")
-        message += f"\n\n<i>Detected at {now}</i>"
+        message += f"\n<i>Detected at {now}</i>"
         
         if self._send_message(message.strip()):
             self._record_notification("trend", item_key, cooldown_minutes=120)

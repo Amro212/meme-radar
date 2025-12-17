@@ -155,6 +155,11 @@ noise:
     - "follow me"
     - "check out"
     - "discount code"
+    - "the link"
+    - "the full"
+    - "full video"
+    - "click link"
+    - "see link"
   # Evergreen hashtags to filter (unless extreme spike)
   evergreen_hashtags:
     - "love"

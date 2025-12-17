@@ -355,17 +355,14 @@ class MemeRadarOrchestrator:
             )
             
             for trend in trends:
-                example_url = None
-                if trend.example_refs:
-                    example_url = trend.example_refs[0] if isinstance(trend.example_refs, list) else None
-                
                 notifier.notify_trend(
                     term=trend.term,
                     acceleration=trend.acceleration_score,
                     frequency=trend.current_frequency,
                     platform=trend.platform.name if trend.platform else "unknown",
                     zscore=trend.z_score,
-                    example_url=example_url,
+                    example_urls=trend.example_refs,
+                    unique_users=trend.distinct_authors,
                 )
             
             # Notify on hot videos (high score only)

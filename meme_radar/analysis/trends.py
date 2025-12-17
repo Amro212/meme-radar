@@ -492,6 +492,7 @@ class TrendAnalyzer:
                 z_score=metrics.z_score,
                 trend_score=trend_score,
                 example_refs=metrics.example_refs,
+                distinct_authors=metrics.distinct_authors,
             )
             
             self.session.add(candidate)
