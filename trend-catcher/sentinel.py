@@ -11,6 +11,7 @@ from db import init_db, SessionLocal, TrackedVideo, VideoStats
 from utils_auth import init_api
 from algorithm import TrendScorer
 from notify import Notifier
+from creative_center_scraper import get_trending_videos_with_stats
 
 # Configure logging
 logging.basicConfig(
@@ -84,22 +85,24 @@ class Sentinel:
                 await asyncio.sleep(backoff)
 
     async def check_trends(self):
-        """Fetch and process trending videos."""
-        api = await self._get_api()
+        """Fetch and process trending videos from Creative Center."""
         
-        logger.info("Fetching trending videos...")
-        videos = []
+        # Use Creative Center scraper to get trending videos with stats
+        # This replaces the broken api.trending.videos() and api.hashtag.videos()
+        logger.info("Fetching trending videos from Creative Center...")
+        
         try:
-            # Fetch batch of trending videos
-            # api.trending.videos returns an async iterator
-            async for video in api.trending.videos(count=20):
-                videos.append(video)
+            videos = await get_trending_videos_with_stats(
+                sort_by="Shares",
+                count=15,
+                headless=self.headless
+            )
         except Exception as e:
             logger.error(f"Failed to fetch videos: {e}")
             raise e
 
         if not videos:
-            logger.warning("No videos received from API.")
+            logger.warning("No videos received from Creative Center.")
             return
 
         logger.info(f"Received {len(videos)} videos. Processing...")
@@ -111,33 +114,39 @@ class Sentinel:
         batch_data = []
         for video in videos:
             try:
-                info = video.as_dict
-                v_id = info['id']
-                author = info['author']['uniqueId']
+                v_id = video.video_id
+                author = video.author
                 
-                create_time = datetime.fromtimestamp(info['createTime'])
+                create_time = datetime.fromtimestamp(video.create_time)
                 
-                # Filter out videos older than 24 hours
+                # Filter out videos older than 7 days
                 age_seconds = (now - create_time).total_seconds()
-                if age_seconds > 24 * 3600:
-                    logger.info(f"Skipping old video: {v_id} (Age: {age_seconds/3600:.1f}h)")
+                age_hours = age_seconds / 3600
+                if age_hours > 168:  # 7 days
+                    logger.debug(f"Skipping old video: {v_id} (Age: {age_hours:.1f}h)")
                     continue
 
-                stats = info['stats']
-                play_count = stats.get('playCount', 0)
+                # Stats from VideoMetrics
+                stats = {
+                    'playCount': video.play_count,
+                    'diggCount': video.like_count,
+                    'commentCount': video.comment_count,
+                    'shareCount': video.share_count
+                }
+                play_count = video.play_count
                 
                 velocity = self.scorer.calculate_velocity(play_count, create_time, now)
                 
-                permalink = f"https://www.tiktok.com/@{author}/video/{v_id}"
+                permalink = video.video_url
 
                 batch_data.append({
-                    'video_obj': link_info(video, info),
+                    'video': video,
                     'id': v_id,
                     'author': author,
                     'create_time': create_time,
                     'stats': stats,
                     'velocity': velocity,
-                    'desc': info.get('desc', ''),
+                    'desc': video.description[:500] if video.description else "",
                     'permalink': permalink
                 })
             except Exception as e:
@@ -229,3 +238,20 @@ class Sentinel:
 def link_info(video_obj, info_dict):
     """Helper to keep data together if needed"""
     return video_obj
+
+
+if __name__ == "__main__":
+    import sys
+    
+    # Add trend-catcher to path for imports
+    sys.path.insert(0, "trend-catcher")
+    
+    # Run one check cycle
+    async def main():
+        sentinel = Sentinel(check_interval=900, headless=False)
+        try:
+            await sentinel.check_trends()
+        finally:
+            sentinel.db.close()
+    
+    asyncio.run(main())
