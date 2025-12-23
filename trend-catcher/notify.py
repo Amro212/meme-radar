@@ -111,3 +111,183 @@ class Notifier:
 <a href="{link}">🔗 WATCH VIDEO</a>
 """
         return self.send(msg.strip())
+    
+    def notify_hashtag_match(self, video_data: dict, matched_hashtags: list[str]):
+        """
+        Send notification for hashtag-whitelisted content.
+        These bypass normal trend detection and are sent for manual review.
+        """
+        stats = video_data.get('stats', {})
+        plays = f"{stats.get('playCount', 0):,}"
+        likes = f"{stats.get('diggCount', 0):,}"
+        shares = f"{stats.get('shareCount', 0):,}"
+        
+        caption = video_data.get('desc', '') or ''
+        # Truncate caption
+        if len(caption) > 150:
+            caption = caption[:147] + "..."
+            
+        author = video_data.get('author', 'Unknown')
+        link = video_data.get('permalink', '')
+        
+        # Format matched hashtags
+        hashtag_str = ", ".join([f"#{tag}" for tag in matched_hashtags[:5]])  # Show max 5
+        
+        msg = f"""
+<b>━━━ 🏷️ HASHTAG MATCH ━━━</b>
+
+<b>✅ Matched:</b> <code>{hashtag_str}</code>
+
+<b>👤 Author:</b> @{author}
+
+<b>📊 Stats</b>
+👁 Views: <code>{plays}</code>
+❤️ Likes: <code>{likes}</code>
+🔄 Shares: <code>{shares}</code>
+
+<b>📝 Caption</b>
+<i>{caption}</i>
+
+<a href="{link}">🔗 WATCH VIDEO</a>
+"""
+        return self.send(msg.strip())
+    
+    def notify_new_video(self, video_data: dict):
+        """
+        Send notification for new trending video (sorted by engagement).
+        """
+        stats = video_data.get('stats', {})
+        plays = f"{stats.get('playCount', 0):,}"
+        likes = f"{stats.get('diggCount', 0):,}"
+        shares = f"{stats.get('shareCount', 0):,}"
+        comments = f"{stats.get('commentCount', 0):,}"
+        
+        caption = video_data.get('desc', '') or ''
+        # Truncate caption
+        if len(caption) > 120:
+            caption = caption[:117] + "..."
+            
+        author = video_data.get('author', 'Unknown')
+        link = video_data.get('permalink', '')
+        
+        msg = f"""
+<b>━━━ 🔥 NEW TRENDING VIDEO ━━━</b>
+
+<b>👤 Author:</b> @{author}
+
+<b>📊 Engagement Stats</b>
+👁 Views: <code>{plays}</code>
+❤️ Likes: <code>{likes}</code>
+💬 Comments: <code>{comments}</code>
+🔄 Shares: <code>{shares}</code>
+
+<b>📝 Caption</b>
+<i>{caption}</i>
+
+<a href="{link}">🔗 WATCH VIDEO</a>
+"""
+        return self.send(msg.strip())
+    
+    def _format_number(self, num: int) -> str:
+        """Format large numbers with M/K suffixes."""
+        if num >= 1_000_000:
+            return f"{num / 1_000_000:.1f}M"
+        elif num >= 1_000:
+            return f"{num / 1_000:.1f}K"
+        else:
+            return str(num)
+    
+    def notify_batch_videos(self, videos: list, new_video_ids: set = None) -> bool:
+        """
+        Send ONE consolidated message with all videos ranked by engagement.
+        
+        Args:
+            videos: List of video data dicts with stats
+            new_video_ids: Set of video IDs that are NEW this cycle
+        """
+        if not videos:
+            logger.info("No videos to notify about.")
+            return False
+        
+        if new_video_ids is None:
+            new_video_ids = set()
+        
+        # Import hashtag extraction
+        import re
+        
+        # Build message header
+        new_count = len(new_video_ids)
+        total_count = len(videos)
+        
+        if new_count > 0:
+            header = f"🔥 <b>TRENDING VIDEOS</b> ({new_count} NEW / {total_count} total)"
+        else:
+            header = f"📊 <b>TRENDING VIDEOS</b> ({total_count} total)"
+        
+        lines = [header, "━━━━━━━━━━━━━━━━━━━━━━━━", ""]
+        
+        # Build video entries
+        for i, video in enumerate(videos, 1):
+            stats = video.get('stats', {})
+            views = self._format_number(stats.get('playCount', 0))
+            likes = self._format_number(stats.get('diggCount', 0))
+            comments = self._format_number(stats.get('commentCount', 0))
+            shares = self._format_number(stats.get('shareCount', 0))
+            
+            author = video.get('author', 'Unknown')
+            link = video.get('permalink', '')
+            v_id = video.get('id', '')
+            desc = video.get('desc', '') or ''
+            
+            # Get creation date
+            create_time = video.get('create_time')
+            if create_time:
+                date_str = create_time.strftime("%Y-%m-%d")
+            else:
+                date_str = "Unknown"
+            
+            # Extract hashtags from description
+            hashtags = re.findall(r'#(\w+)', desc)
+            hashtag_str = " ".join([f"#{tag}" for tag in hashtags[:5]]) if hashtags else "No hashtags"
+            
+            # Truncate description (remove hashtags for cleaner display)
+            desc_clean = re.sub(r'#\w+', '', desc).strip()
+            if len(desc_clean) > 80:
+                desc_clean = desc_clean[:77] + "..."
+            
+            # Mark NEW videos
+            new_badge = "🆕 " if v_id in new_video_ids else ""
+            
+            # Rank emoji
+            if i == 1:
+                rank = "🥇"
+            elif i == 2:
+                rank = "🥈"
+            elif i == 3:
+                rank = "🥉"
+            else:
+                rank = f"{i}."
+            
+            entry = f"""{rank} {new_badge}<b>@{author}</b> <i>({date_str})</i>
+   👁 {views} | ❤️ {likes} | 💬 {comments} | 🔄 {shares}
+   📝 <i>{desc_clean}</i>
+   🏷️ {hashtag_str}
+   <a href="{link}">🔗 Watch</a>
+"""
+            lines.append(entry)
+        
+        # Footer with timestamp
+        from datetime import datetime
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"<i>Scraped: {timestamp}</i>")
+        
+        message = "\n".join(lines)
+        
+        # Check Telegram message limit (4096 chars)
+        if len(message) > 4000:
+            logger.warning(f"Message too long ({len(message)} chars), truncating...")
+            # Send what we can
+            message = message[:4000] + "\n\n<i>... (truncated)</i>"
+        
+        return self.send(message)

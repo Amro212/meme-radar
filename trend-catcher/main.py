@@ -24,7 +24,7 @@ def main():
     sentinel = Sentinel(check_interval=args.interval, headless=args.headless)
     
     try:
-        asyncio.run(sentinel.run_forever())
+        asyncio.run(sentinel.run())
     except KeyboardInterrupt:
         print("\nSentinel stopped by user.")
     except Exception as e:

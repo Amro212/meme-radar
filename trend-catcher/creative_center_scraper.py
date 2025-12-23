@@ -13,6 +13,8 @@ from typing import List, Dict, Optional
 from dataclasses import dataclass
 from playwright.async_api import async_playwright, Page
 
+from stealth_browser import create_stealth_browser, add_stealth_scripts
+
 from video_scraper import scrape_video_metrics, VideoMetrics
 
 logging.basicConfig(level=logging.INFO)
@@ -63,34 +65,98 @@ async def get_trending_videos(
     sort_by: str = "Shares",
     period: str = "120",
     count: int = 20,
-    headless: bool = True
+    headless: bool = True,
+    max_retries: int = 3
 ) -> List[VideoInfo]:
     """
-    Scrape trending videos from TikTok Creative Center.
+    Scrape trending videos from TikTok Creative Center with retry logic.
     
     Args:
         sort_by: Sort option - "hot", "Like", "Comments", or "Shares"
         period: Time period - "7", "30", or "120" days
         count: Target number of videos to retrieve
         headless: Run browser in headless mode
+        max_retries: Maximum retry attempts if bot detection occurs
         
     Returns:
         List of VideoInfo objects with video IDs, author info, and URLs
     """
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Scraping attempt {attempt + 1}/{max_retries}")
+            videos = await _scrape_creative_center(sort_by, period, count, headless)
+            
+            if videos:
+                logger.info(f"Successfully scraped {len(videos)} videos on attempt {attempt + 1}")
+                return videos
+            else:
+                if attempt < max_retries - 1:
+                    backoff_time = (2 ** attempt) * 5  # 5s, 10s, 20s
+                    logger.warning(f"No videos loaded (likely bot detection). Retrying in {backoff_time}s...")
+                    await asyncio.sleep(backoff_time)
+                else:
+                    logger.error(f"Failed to load videos after {max_retries} attempts")
+                    return []
+                    
+        except Exception as e:
+            logger.error(f"Attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                backoff_time = (2 ** attempt) * 5
+                logger.info(f"Retrying in {backoff_time}s...")
+                await asyncio.sleep(backoff_time)
+            else:
+                logger.error(f"All {max_retries} attempts failed")
+                return []
+    
+    return []
+
+
+async def _scrape_creative_center(
+    sort_by: str,
+    period: str,
+    count: int,
+    headless: bool
+) -> List[VideoInfo]:
+    """Internal function that performs the actual scraping."""
     video_ids = []
     
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=headless)
-            context = await browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            )
+            # Use stealth browser to evade bot detection
+            browser, context = await create_stealth_browser(p, headless=headless)
             page = await context.new_page()
+            await add_stealth_scripts(page)
             
             logger.info(f"Navigating to TikTok Creative Center...")
             await page.goto(CREATIVE_CENTER_URL, wait_until="domcontentloaded", timeout=60000)
-            await page.wait_for_timeout(5000)
+            
+            # Wait for network to be idle (JavaScript loaded)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+                logger.info("Network idle achieved")
+            except:
+                logger.warning("Network idle timeout - continuing anyway")
+            
+            # Wait for videos to load (critical fix for reliability)
+            logger.info("Waiting for video elements to load...")
+            max_wait_attempts = 30  # Up to 60 seconds (30 × 2s)
+            for attempt in range(max_wait_attempts):
+                await page.wait_for_timeout(2000)  # 2s between checks
+                
+                video_count = await page.evaluate("""
+                    () => document.querySelectorAll('blockquote[data-video-id]').length
+                """)
+                
+                if video_count > 0:
+                    logger.info(f"Videos loaded ({video_count} videos found after {(attempt + 1) * 2}s)")
+                    break
+                    
+                if attempt == max_wait_attempts - 1:
+                    logger.warning(f"No videos loaded after {max_wait_attempts * 2}s - page may not have content")
+            
+            # Additional stabilization wait
+            await page.wait_for_timeout(3000)
             
             # Sort by the requested metric (e.g., Shares)
             await _select_sort_option(page, sort_by)
@@ -435,7 +501,7 @@ if __name__ == "__main__":
     async def main():
         # Test the full pipeline
         videos = await get_trending_videos_with_stats(
-            sort_by="Shares",
+            sort_by="Like",
             count=5,
             headless=False
         )
